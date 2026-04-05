@@ -1,0 +1,83 @@
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "file",
+    "source": "C:/Users/fract/.config/fastfetch/ascii.txt",
+    "color": {
+      "1": "white"
+    },
+    "padding": {
+      "top": 1,
+      "right": 8
+    }
+  },
+  "display": {
+    "separator": "  "
+  },
+  "modules": [
+    "break",
+    {
+      "type": "title",
+      "color": {
+        "user": "#7E9CD8",
+        "at": "#C8C093",
+        "host": "#DCA561"
+      }
+    },
+    "break",
+    "break",
+    {
+      "type": "custom",
+      "format": "┌──────────────────────────────────────┐"
+
+    },
+    "break",
+    {
+      "type": "cpu",
+      "format": "{1} [{7}]",
+      "key": "   CPU",
+      "keyColor": "#7E9CD8"
+    },
+    {
+      "type": "gpu",
+      "format": "{name}",
+      "key": "   GPU",
+      "keyColor": "#7E9CD8"
+    },
+
+
+    {
+      "type": "disk",
+      "format": "{1} / {2} ({3})",
+      "key": "   Disk",
+      "keyColor": "#7E9CD8"
+    },
+    {
+      "type": "memory",
+      "key": "   Memory",
+      "keyColor": "#7E9CD8",
+      "format": "{used} / {total} ({percentage})"
+    },
+
+    {
+      "type": "battery",
+      "format": "{capacity} [{5}]",
+      "key": "   Battery",
+      "keyColor": "#7E9CD8"
+    },
+
+        "break",
+
+    {
+      "type": "custom",
+      "format": "└──────────────────────────────────────┘"
+
+    },
+    {
+      "type": "colors",
+      "paddingLeft": 3,
+      "symbol": "circle"
+    },
+    "break"
+  ]
+}

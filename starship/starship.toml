@@ -1,0 +1,30 @@
+format = '\[$username@$hostname $directory\]$character'
+add_newline = false
+
+[username]
+format = '[$user]($style)'
+show_always = true
+style_user = 'white'
+style_root = 'bold red'
+
+[hostname]
+ssh_only = false
+format = '[$hostname]($style)'
+style = 'red'
+
+[directory]
+format = '[$path]($style)'
+style = 'white'
+truncate_to_repo = false
+truncation_length = 3 
+
+[character]
+success_symbol = '[\$](white)'
+error_symbol = '[\$](red)'
+
+[python]
+disabled = true
+
+[conda]
+disabled = true
+

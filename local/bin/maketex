@@ -2,6 +2,15 @@
 # maketex: POSIX LaTeX scaffold.
 
 BASE_DIR="$HOME/Documents/latex"
+VAULT_DIR="$HOME/texvault"
+
+# Dependecy check
+for cmd in dmenu nvim latexmk rsync; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        printf "Error: %s is not installed.\n" "$cmd" >&2
+        exit 1
+    fi
+done
 
 PROJ=$(dmenu -p "Project:" < /dev/null)
 [ -z "$PROJ" ] && exit 1
@@ -9,49 +18,47 @@ PROJ=$(dmenu -p "Project:" < /dev/null)
 CAT=$(printf "eng\nlab\nlit\nmath\nphil\nphys" | dmenu -i -l 6 -p "Category:")
 [ -z "$CAT" ] && exit 1
 
-# Topological String Sanitization
 DIR_NAME=$(printf "%s" "$PROJ" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | tr -s '-' | sed 's/^-//;s/-$//')
 DIR="$BASE_DIR/$CAT/$DIR_NAME"
 
 [ -d "$DIR" ] && exit 1
 
+# Logic state machine
 case "$CAT" in
     phil|lit)
         SECTIONS="01_introduction 02_argumentation 03_objections 04_conclusion"
+        BIB_STYLE="style=authoryear"
         ;;
     math)
         SECTIONS="01_introduction 02_definitions 03_theorems 04_proofs"
+        BIB_STYLE="style=numeric"
         ;;
     *)
         SECTIONS="01_introduction 02_background 03_analysis 04_results 05_conclusion"
+        BIB_STYLE="style=ieee"
         ;;
 esac
 
 mkdir -p "$DIR/figures" "$DIR/sections"
 
 INPUT_BLOCK=""
-
 for sec in $SECTIONS; do
     TITLE=$(printf "%s" "$sec" | awk -F'_' '{print toupper(substr($2,1,1)) substr($2,2)}')
-    
     cat << EOF > "$DIR/sections/$sec.tex"
 \section{$TITLE}
 \label{sec:${sec#*_}}
 EOF
-
-    INPUT_BLOCK="$INPUT_BLOCK\input{sections/$sec.tex}
-"
+    INPUT_BLOCK="${INPUT_BLOCK}\input{sections/$sec.tex}\n"
 done
 
 touch "$DIR/refs.bib"
 
 cat << EOF > "$DIR/main.tex"
 \documentclass[11pt, a4paper]{article}
-
 \usepackage{amsmath, amssymb, amsfonts, amsthm}
 \usepackage{graphicx}
 \usepackage{hyperref}
-\usepackage[style=ieee, backend=biber]{biblatex}
+\usepackage[$BIB_STYLE, backend=biber]{biblatex}
 
 \graphicspath{{./figures/}}
 \addbibresource{refs.bib}
@@ -62,34 +69,41 @@ cat << EOF > "$DIR/main.tex"
 \begin{document}
 \maketitle
 
-$INPUT_BLOCK
+$(printf "$INPUT_BLOCK")
 \printbibliography
 \end{document}
 EOF
 
-cat << 'EOF' > "$DIR/Makefile"
+cat << EOF | sed 's/^__TAB__/\t/' > "$DIR/Makefile"
 DOC = main
+PROJ = $DIR_NAME
+CAT = $CAT
+VAULT = $VAULT_DIR
 
-all: $(DOC).pdf
+all: \$(DOC).pdf
 
-$(DOC).pdf: $(DOC).tex sections/*.tex refs.bib
-	latexmk -pdf -interaction=nonstopmode -halt-on-error $(DOC).tex
+\$(DOC).pdf: \$(DOC).tex sections/*.tex refs.bib
+__TAB__latexmk -pdf -interaction=nonstopmode -halt-on-error \$(DOC).tex
 
 clean:
-	latexmk -c $(DOC).tex
-	rm -f *.bbl *.run.xml *.synctex.gz
+__TAB__latexmk -c \$(DOC).tex
+__TAB__rm -f *.bbl *.run.xml *.synctex.gz *.bcf *.fdb_latexmk *.fls
 
 purge: clean
-	latexmk -C $(DOC).tex
+__TAB__latexmk -C \$(DOC).tex
+
+git: clean
+__TAB__@printf "Syncing \$(PROJ) to \$(VAULT)...\n"
+__TAB__mkdir -p \$(VAULT)/\$(CAT)/\$(PROJ)
+__TAB__rsync -rt --delete --exclude='Makefile' --exclude='*.run.xml' --exclude='*.bbl' --exclude='*.synctex.gz' ./ \$(VAULT)/\$(CAT)/\$(PROJ)/
+__TAB__cd \$(VAULT) && git add \$(CAT)/\$(PROJ)
+__TAB__cd \$(VAULT) && git commit -m "sync: \$(CAT)/\$(PROJ) [\$(shell date +'%Y-%m-%d %H:%M:%S')]" || true
+__TAB__cd \$(VAULT) && git push origin main
 EOF
 
 cd "$DIR" || exit 1
-
 make >/dev/null 2>&1
-
-if command -v sioyek >/dev/null; then
-    sioyek main.pdf >/dev/null 2>&1 &
-fi
+[ -f main.pdf ] && command -v sioyek >/dev/null && sioyek main.pdf >/dev/null 2>&1 &
 
 if [ -t 0 ]; then
     nvim main.tex

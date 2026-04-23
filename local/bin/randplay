@@ -1,0 +1,17 @@
+#!/bin/sh
+# randplay: Instantly play a random album from the Hi-Fi library.
+
+MUSIC_DIR="/media/luiscruz/Toshiba/Hi-Fi Music"
+
+[ ! -d "$MUSIC_DIR" ] && exit 1
+
+# -mindepth 2 -maxdepth 2 targets the 'Artist/Album' structure directly.
+# This avoids the overhead of reading every single file inode.
+ALBUM=$(find "$MUSIC_DIR" -mindepth 2 -maxdepth 2 -type d | shuf -n 1)
+
+if [ -n "$ALBUM" ]; then
+    ALBUM_NAME=$(basename "$ALBUM")
+    
+    kitty --title "mpv-status: $ALBUM_NAME" \
+    mpv --cache=yes --geometry=500x500 "$ALBUM"
+fi

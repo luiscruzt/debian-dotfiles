@@ -1,0 +1,99 @@
+#!/bin/sh
+# maketex: POSIX LaTeX scaffold.
+
+BASE_DIR="$HOME/Documents/latex"
+
+PROJ=$(dmenu -p "Project:" < /dev/null)
+[ -z "$PROJ" ] && exit 1
+
+CAT=$(printf "eng\nlab\nlit\nmath\nphil\nphys" | dmenu -i -l 6 -p "Category:")
+[ -z "$CAT" ] && exit 1
+
+# Topological String Sanitization
+DIR_NAME=$(printf "%s" "$PROJ" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | tr -s '-' | sed 's/^-//;s/-$//')
+DIR="$BASE_DIR/$CAT/$DIR_NAME"
+
+[ -d "$DIR" ] && exit 1
+
+case "$CAT" in
+    phil|lit)
+        SECTIONS="01_introduction 02_argumentation 03_objections 04_conclusion"
+        ;;
+    math)
+        SECTIONS="01_introduction 02_definitions 03_theorems 04_proofs"
+        ;;
+    *)
+        SECTIONS="01_introduction 02_background 03_analysis 04_results 05_conclusion"
+        ;;
+esac
+
+mkdir -p "$DIR/figures" "$DIR/sections"
+
+INPUT_BLOCK=""
+
+for sec in $SECTIONS; do
+    TITLE=$(printf "%s" "$sec" | awk -F'_' '{print toupper(substr($2,1,1)) substr($2,2)}')
+    
+    cat << EOF > "$DIR/sections/$sec.tex"
+\section{$TITLE}
+\label{sec:${sec#*_}}
+EOF
+
+    INPUT_BLOCK="$INPUT_BLOCK\input{sections/$sec.tex}
+"
+done
+
+touch "$DIR/refs.bib"
+
+cat << EOF > "$DIR/main.tex"
+\documentclass[11pt, a4paper]{article}
+
+\usepackage{amsmath, amssymb, amsfonts, amsthm}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[style=ieee, backend=biber]{biblatex}
+
+\graphicspath{{./figures/}}
+\addbibresource{refs.bib}
+
+\title{$PROJ}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+$INPUT_BLOCK
+\printbibliography
+\end{document}
+EOF
+
+cat << 'EOF' > "$DIR/Makefile"
+DOC = main
+
+all: $(DOC).pdf
+
+$(DOC).pdf: $(DOC).tex sections/*.tex refs.bib
+	latexmk -pdf -interaction=nonstopmode -halt-on-error $(DOC).tex
+
+clean:
+	latexmk -c $(DOC).tex
+	rm -f *.bbl *.run.xml *.synctex.gz
+
+purge: clean
+	latexmk -C $(DOC).tex
+EOF
+
+cd "$DIR" || exit 1
+
+make >/dev/null 2>&1
+
+if command -v sioyek >/dev/null; then
+    sioyek main.pdf >/dev/null 2>&1 &
+fi
+
+if [ -t 0 ]; then
+    nvim main.tex
+    exec "${SHELL:-/bin/sh}"
+else
+    kitty --directory "$DIR" sh -c "nvim main.tex; exec \${SHELL:-/bin/sh}"
+fi

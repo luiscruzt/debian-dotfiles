@@ -1,0 +1,46 @@
+#!/bin/sh
+# music-browser: POSIX dmenu interface for mpv
+
+MUSIC_DIR="/media/luiscruz/Toshiba/Hi-Fi Music"
+
+[ ! -d "$MUSIC_DIR" ] && printf "Error: Drive not mounted\n" >&2 && exit 1
+
+EXTS_REGEX='.*\.\(flac\|mp3\|m4a\|opus\|ogg\|wav\)$'
+
+play_music() {
+    kitty --title "mpv-music" "$@"
+}
+
+ARTIST=$(find "$MUSIC_DIR" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | dmenu -i -l 20 -p "Artist:")
+[ -z "$ARTIST" ] && exit 0
+ART_PATH="$MUSIC_DIR/$ARTIST"
+
+MODE=$(printf "Album\nFull Discography\nShuffle\nSingle Song" | dmenu -i -p "$ARTIST:")
+[ -z "$MODE" ] && exit 0
+
+case "$MODE" in
+    Album)
+        ALBUM=$(find "$ART_PATH" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | dmenu -i -l 20 -p "Album:")
+        [ -n "$ALBUM" ] && play_music sh -c 'find "$1" -regex "$2" | sort | mpv --cache=yes --playlist=-' _ "$ART_PATH/$ALBUM" "$EXTS_REGEX"
+        ;;
+
+    "Full Discography")
+        play_music sh -c 'find "$1" -regex "$2" | sort | mpv --cache=yes --playlist=-' _ "$ART_PATH" "$EXTS_REGEX"
+        ;;
+
+    Shuffle)
+        play_music shuffle-and-play "$ART_PATH"
+        ;;
+
+    "Single Song")
+        CHOICE=$(find "$ART_PATH" -regex "$EXTS_REGEX" | \
+                 awk -v p="$ART_PATH/" '{ sub(p, ""); printf "%-30s | %s\n", substr($0, 1, index($0, "/")-1), substr($0, index($0, "/")+1) }' | \
+                 dmenu -i -l 20 -p "Song:")
+        
+        [ -z "$CHOICE" ] && exit 0
+        
+        REL_PATH=$(printf "%s" "$CHOICE" | awk -F ' \\| ' '{gsub(/ +$/, "", $1); print $1 "/" $2}')
+        
+        play_music mpv "$ART_PATH/$REL_PATH"
+        ;;
+esac

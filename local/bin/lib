@@ -1,0 +1,45 @@
+#!/bin/sh
+# lib: minimalist library manager 
+
+DIR="/media/luiscruz/Toshiba/TextBooks"
+CACHE="/tmp/lib_cache"
+MENU="dmenu -i -l 25 -p"
+
+# 1. Environment Check
+[ -d "$DIR" ] || { printf "Error: Drive not mounted at %s\n" "$DIR" >&2; exit 1; }
+[ -f "$CACHE" ] || find "$DIR" -type f -name "*.pdf" > "$CACHE"
+
+# 2. Functional Menu
+OPT=$(printf "Search\nRandom (Keyword)\nRandom (Category)\nUpdate Cache" | $MENU "Library:")
+
+case "$OPT" in
+    "Search")
+        # Strips prefix for display, re-attaches for execution
+        SEL=$(sed "s|^$DIR/||" "$CACHE" | $MENU "Find:")
+        [ -n "$SEL" ] && FILE="$DIR/$SEL"
+        ;;
+    "Random (Keyword)")
+        KEY=$(: | $MENU "Keyword:")
+        # Selects absolute path directly from cache
+        [ -n "$KEY" ] && FILE=$(grep -i "$KEY" "$CACHE" | shuf -n 1)
+        ;;
+    "Random (Category)")
+        # List only the 23 main subject folders
+        CAT=$(find "$DIR" -maxdepth 1 -mindepth 1 -type d | sed "s|^$DIR/||" | $MENU "Category:")
+        # Pick a random file within the selected absolute folder path
+        [ -n "$CAT" ] && FILE=$(find "$DIR/$CAT" -type f -name "*.pdf" | shuf -n 1)
+        ;;
+    "Update Cache")
+        find "$DIR" -type f -name "*.pdf" > "$CACHE"
+        notify-send "lib" "Cache updated for 6000+ items."
+        exit 0
+        ;;
+    *) exit 0 ;;
+esac
+
+# 3. Execution
+if [ -n "$FILE" ] && [ -f "$FILE" ]; then
+    sioyek "$FILE" >/dev/null 2>&1 &
+else
+    [ -n "$OPT" ] && notify-send "lib" "Error: File not found."
+fi

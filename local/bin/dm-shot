@@ -1,0 +1,38 @@
+#!/bin/sh
+# dm-shot: streamlined screen capture and OCR
+
+DIR="${HOME}/Pictures/screenshots"
+DMENU_P="dmenu -i -p"
+
+# 1. Action Selection
+ACTION=$(printf "Full\nWindow\nSelection\nOCR (en)\nOCR (es)" | $DMENU_P "Capture:")
+[ -z "$ACTION" ] && exit 0
+
+# 2. Metadata Generation (Only generated if a capture proceeds)
+DATE=$(date +%Y%m%d_%H%M%S)
+NAME="shot_${DATE}.png"
+TMP=$(mktemp /tmp/shot_XXXXXX.png)
+trap 'rm -f "$TMP"' EXIT
+
+mkdir -p "$DIR"
+
+case "$ACTION" in
+    Full)      maim "$DIR/$NAME" ;;
+    Window)    maim -i "$(xdotool getactivewindow)" "$DIR/$NAME" ;;
+    Selection) maim -s "$DIR/$NAME" ;;
+    OCR\ \(en\))
+        maim -s "$TMP" && tesseract "$TMP" stdout -l eng 2>/dev/null | xclip -selection clipboard
+        notify-send "OCR (en)" "Text copied to clipboard"
+        exit 0 ;;
+    OCR\ \(es\))
+        maim -s "$TMP" && tesseract "$TMP" stdout -l spa 2>/dev/null | xclip -selection clipboard
+        notify-send "OCR (es)" "Text copied to clipboard"
+        exit 0 ;;
+    *) exit 0 ;;
+esac
+
+# 3. Post-processing for Image Files
+if [ -f "$DIR/$NAME" ]; then
+    xclip -selection clipboard -t image/png -i "$DIR/$NAME"
+    notify-send "Screenshot" "Saved and copied: $NAME"
+fi

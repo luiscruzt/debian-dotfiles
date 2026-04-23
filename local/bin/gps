@@ -1,0 +1,30 @@
+#!/bin/sh
+
+# dmenu appearance configuration
+DMENU="dmenu -i -l 20 -p Process:"
+
+# Data Acquisition and Formatting
+# Column order: PID (1), CPU% (2), RAM in MB (3), Command Name (4)
+PROCS=$(ps -eo pid,pcpu,rss,comm --no-headers --sort=-pcpu | \
+        awk '{printf "%-7s | CPU: %-5s%% | RAM: %-8.2f MB | %s\n", $1, $2, $3/1024, $4}')
+
+# User selection via dmenu
+SELECTED=$(echo "$PROCS" | $DMENU)
+[ -z "$SELECTED" ] && exit 0
+
+# Extract PID (Field 1)
+PID=$(echo "$SELECTED" | awk '{print $1}')
+
+# Signal Dispatch Menu
+ACTION=$(echo "SIGTERM\nSIGKILL\nSIGHUP\nRENICE" | dmenu -i -p "Action for PID $PID:")
+
+case "$ACTION" in
+    SIGTERM) kill -15 "$PID" ;;
+    SIGKILL) kill -9 "$PID" ;;
+    SIGHUP)  kill -1 "$PID"  ;;
+    RENICE)  
+        PRIO=$(echo "" | dmenu -p "New Priority (-20 to 19):")
+        [ -n "$PRIO" ] && renice "$PRIO" -p "$PID"
+        ;;
+    *) exit 0 ;;
+esac

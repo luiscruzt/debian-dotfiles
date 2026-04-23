@@ -1,0 +1,49 @@
+[general]
+separator=true
+separator_block_width=15
+markup=pango
+interval=5
+
+[cpu_usage]
+# Samples CPU delta over 1 second to provide instantaneous utilization
+command=echo "CPU: $(vmstat 1 2 | tail -1 | awk '{print 100 - $15}')%"
+interval=3
+color=#89b4fa
+
+[memory]
+command=awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "RAM: %.1f/%.1f GB", (t-a)/1024/1024, t/1024/1024}' /proc/meminfo
+interval=5
+color=#a6e3a1
+
+[disk_root]
+command=df -h / | awk 'NR==2 {printf "/: %s/%s (%s)\n", $3, $2, $5}'
+interval=30
+color=#f9e2af
+
+[disk_home]
+command=df -h /home | awk 'NR==2 {printf "/home: %s/%s (%s)\n", $3, $2, $5}'
+interval=30
+color=#f9e2af
+
+[network]
+# Dynamically identifies the active interface and retrieves the IP address
+command=I=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $5; exit}'); [ -n "$I" ] && ip addr show "$I" | awk '/inet / {split($2,a,"/"); print "NET: "a[1]}' || echo "NET: --"
+interval=10
+color=#89dceb
+
+[volume]
+# Uses pactl for PulseAudio/PipeWire; configured for signal-driven updates
+command=pactl get-sink-mute @DEFAULT_SINK@ | grep -q "yes" && echo "VOL: MUTE" || pactl get-sink-volume @DEFAULT_SINK@ | head -n1 | awk '{print "VOL: "$5}'
+interval=once
+signal=10
+color=#cba6f7
+
+# [battery]
+# command=read -r cap < /sys/class/power_supply/BAT0/capacity; read -r stat < /sys/class/power_supply/BAT0/status; echo "BAT: ${cap}% ${stat}"
+# interval=30
+# color=#fab387
+
+[time]
+command=date '+%a %d %b  %H:%M'
+interval=10
+color=#cdd6f4

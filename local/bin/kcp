@@ -1,0 +1,36 @@
+#!/bin/sh
+# KiCad Crop & Publish: crop and move KiCad PDFs to LaTeX projects.
+
+# Configuration
+SRC="${HOME}/lab/electrical/kicad/tmp/output.pdf"
+LTX="${HOME}/Documents/latex"
+
+# Verify source file exists
+[ -f "$SRC" ] || { printf "Error: %s not found.\n" "$SRC" >&2; exit 1; }
+
+# Get output filename
+NAME=$(: | dmenu -p "Filename:")
+[ -z "$NAME" ] && exit 0
+
+# Find project directory (depth: category/project)
+PROJ=$(find "$LTX" -maxdepth 2 -mindepth 2 -type d | sed "s|^$LTX/||" | dmenu -i -l 20 -p "Project:")
+[ -z "$PROJ" ] && exit 0
+
+# Set destination
+DEST="$LTX/$PROJ/figures"
+mkdir -p "$DEST"
+OUT="$DEST/${NAME}.pdf"
+
+# Create temp file and ensure cleanup on exit
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+
+# Crop and move to destination
+if pdfcrop "$SRC" "$TMP" >/dev/null 2>&1; then
+    mv -f "$TMP" "$OUT"
+    rm -f "$SRC"
+    notify-send "kcp" "Saved to: $PROJ/figures/${NAME}.pdf"
+else
+    notify-send "kcp" "Error processing PDF"
+    exit 1
+fi

@@ -1,0 +1,15 @@
+#!/bin/sh
+# tempset: Color temperature multiplexer.
+
+MENU="Night — 2500K\nDay — 5000K\nNeutral — 6500K"
+
+CHOICE=$(printf "%b" "$MENU" | dmenu -i -p "Display mode:")
+[ -z "$CHOICE" ] && exit 0
+
+if [ "$CHOICE" = "Reset" ]; then
+    exec redshift -x
+else
+    TEMP=${CHOICE##*— }
+    TEMP=${TEMP%K}
+    exec redshift -P -O "$TEMP"
+fi

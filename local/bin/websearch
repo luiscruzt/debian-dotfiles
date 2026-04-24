@@ -1,0 +1,31 @@
+#!/bin/sh
+# websearch: Bookmark and web query multiplexer.
+
+BOOKMARKS="$HOME/Documents/firefox/bookmarks.html"
+
+if [ ! -f "$BOOKMARKS" ]; then
+    printf "Error: Dependency artifact not found at %s\n" "$BOOKMARKS" >&2
+    exit 1
+fi
+
+ENTRIES=$(sed -n 's/.*HREF="\([^"]*\)".*>\([^<]*\)<\/A>.*/\2\t\1/p' "$BOOKMARKS" | \
+    awk -F'\t' '!seen[$2]++ && $2 !~ /mozilla\.org/ {print $0}')
+
+SELECTED=$(printf "%s\n" "$ENTRIES" | awk -F'\t' '{print $1}' | dmenu -i -l 20 -p "Web:")
+[ -z "$SELECTED" ] && exit 1
+
+URL=$(printf "%s\n" "$ENTRIES" | awk -F'\t' -v sel="$SELECTED" '$1 == sel {print $2; exit}')
+
+if [ -z "$URL" ]; then
+    case "$SELECTED" in
+        http://*|https://*) 
+            URL="$SELECTED" 
+            ;;
+        *) 
+            QUERY=$(printf "%s" "$SELECTED" | tr ' ' '+')
+            URL="https://www.google.com/search?q=$QUERY" 
+            ;;
+    esac
+fi
+
+exec firefox "$URL"

@@ -1,0 +1,39 @@
+#!/bin/sh
+# mtvault: Promote active notes to permanent storage.
+
+if [ ! -t 0 ]; then
+    exec kitty sh -c "$0"
+fi
+
+PVAULT="$HOME/pvault"
+TVAULT="$HOME/texvault"
+
+NOTE_PATH=$(find "$PVAULT" -name "*.tex" | fzf --prompt="Select note: ")
+[ -z "$NOTE_PATH" ] && exit 1
+
+FILENAME_TEX=$(basename "$NOTE_PATH")
+FILENAME_BASE="${FILENAME_TEX%.tex}"
+CATEGORY=$(basename "$(dirname "$NOTE_PATH")")
+
+DEST_DIR="$TVAULT/notes/$CATEGORY/$FILENAME_BASE"
+mkdir -p "$DEST_DIR/figures"
+
+for fig_path in "$PVAULT/$CATEGORY/figures/"*; do
+    [ -f "$fig_path" ] || continue
+    fig_name=$(basename "$fig_path")
+    
+    if grep -q -F "$fig_name" "$NOTE_PATH"; then
+        cp "$fig_path" "$DEST_DIR/figures/"
+    fi
+done
+
+cp "$NOTE_PATH" "$DEST_DIR/"
+cp "$(dirname "$NOTE_PATH")/$FILENAME_BASE.pdf" "$DEST_DIR/" 2>/dev/null
+
+cd "$TVAULT" || exit 1
+git add "notes/$CATEGORY/$FILENAME_BASE"
+git commit -qm "add: $FILENAME_BASE" || true
+git push -q origin main
+
+printf "%s\n" "$DEST_DIR"
+

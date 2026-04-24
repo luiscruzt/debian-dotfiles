@@ -1,0 +1,33 @@
+#!/bin/sh
+# audioswitch: Audio sink multiplexer.
+
+# Parses the daemon output to generate a matrix of: <sink_name> | <description>
+SINKS=$(pactl list sinks | awk '
+    /Name:/ { name = $2 }
+    /Description:/ {
+        $1 = ""
+        sub(/^[ \t]+/, "")
+        print name " | " $0
+    }
+')
+
+[ -z "$SINKS" ] && exit 1
+
+SELECTED=$(printf "%s\n" "$SINKS" | dmenu -i -l 5 -p "Route Audio To:")
+[ -z "$SELECTED" ] && exit 1
+
+TARGET_SINK=$(printf "%s" "$SELECTED" | awk -F' \\| ' '{print $1}')
+TARGET_DESC=$(printf "%s" "$SELECTED" | awk -F' \\| ' '{print $2}')
+
+pactl set-default-sink "$TARGET_SINK"
+
+# Extracts active sink-inputs (audio streams) and redirects them to the new hardware interface.
+pactl list short sink-inputs | awk '{print $1}' | while read -r input; do
+    pactl move-sink-input "$input" "$TARGET_SINK" >/dev/null 2>&1
+done
+
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Audio Subsystem" "Hardware routed to:\n$TARGET_DESC"
+else
+    printf "Audio routed to: %s\n" "$TARGET_DESC"
+fi

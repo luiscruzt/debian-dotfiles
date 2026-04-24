@@ -1,0 +1,29 @@
+#!/bin/sh
+# musicq: Music Queue multiplexer.
+
+if [ ! -t 0 ]; then
+    exec kitty sh -c "$0"
+fi
+
+MUSIC_DIR="/media/luiscruz/Toshiba/Hi-Fi Music"
+
+if [ ! -d "$MUSIC_DIR" ]; then
+    printf "Error: Directory not found -> %s\n" "$MUSIC_DIR" >&2
+    read -r _
+    exit 1
+fi
+
+cd "$MUSIC_DIR" || exit 1
+
+SELECTED=$(find . -type f \( \
+    -iname "*.flac" -o -iname "*.mp3" -o \
+    -iname "*.m4a"  -o -iname "*.opus" -o \
+    -iname "*.ogg"  -o -iname "*.wav" \
+\) | sort | fzf --multi \
+    --prompt="Queue (Tab=select, Enter=play): " \
+    --preview="echo {}" \
+    --preview-window=down:1)
+
+[ -z "$SELECTED" ] && exit 0
+
+printf "%s\n" "$SELECTED" | mpv --playlist=-

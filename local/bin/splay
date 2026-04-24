@@ -1,0 +1,42 @@
+#!/bin/sh
+# splay: Recursive audio shuffler and spatial orchestrator.
+
+TARGET="${1:-.}"
+[ ! -d "$TARGET" ] && printf "Error: Directory not found.\n" >&2 && exit 1
+EXTS_REGEX='.*\.\(flac\|mp3\|m4a\|opus\|ogg\|wav\)$'
+
+for req in mpv find shuf; do
+    command -v "$req" >/dev/null 2>&1 || { printf "Error: '%s' missing.\n" "$req" >&2; exit 1; }
+done
+
+HAS_I3=0
+command -v i3-msg >/dev/null 2>&1 && i3-msg -t get_version >/dev/null 2>&1 && HAS_I3=1
+
+if [ "$HAS_I3" -eq 1 ]; then
+    ID=$$
+    MARK="music_origin_$ID"
+    MPV_TTL="music_mpv_gui_$ID"
+    CAVA_TTL="music_cava_term_$ID"
+
+    i3-msg "mark $MARK" >/dev/null
+
+    trap 'i3-msg "[title=\"$CAVA_TTL\"] kill" >/dev/null 2>&1; i3-msg "[con_mark=\"$MARK\"] unmark" >/dev/null 2>&1' EXIT INT TERM
+
+    (
+        for i in $(seq 1 20); do i3-msg -t get_tree | grep -q "\"name\":\"$MPV_TTL\"" && break; sleep 0.1; done
+
+        i3-msg "[title=\"$MPV_TTL\"] focus; move right" >/dev/null
+        i3-msg "[con_mark=\"$MARK\"] focus; split v" >/dev/null
+        
+        if command -v cava >/dev/null 2>&1 && command -v kitty >/dev/null 2>&1; then
+            kitty --class="music_cava" --title="$CAVA_TTL" -e cava &
+            for i in $(seq 1 20); do i3-msg -t get_tree | grep -q "\"name\":\"$CAVA_TTL\"" && break; sleep 0.1; done
+        fi
+        
+        i3-msg "[title=\"$MPV_TTL\"] focus" >/dev/null
+    ) &
+
+    find "$TARGET" -type f -regex "$EXTS_REGEX" | shuf | mpv --force-window=yes --title="$MPV_TTL" --playlist=-
+else
+    find "$TARGET" -type f -regex "$EXTS_REGEX" | shuf | mpv --playlist=-
+fi

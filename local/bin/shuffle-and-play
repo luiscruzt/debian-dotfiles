@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""
+NAME
+    shuffle-and-play.py - Shuffle and play media in playlist or directories.
+
+DESCRIPTION
+    Recursively finds media files or reads an M3U playlist, applies a 
+    Fisher-Yates shuffle in O(N) time, and streams the buffer to mpv via stdin.
+"""
+
+import sys
+import random
+import subprocess
+from pathlib import Path
+
+def get_directory_media(root_dir: Path) -> list[str]:
+    """Extracts media files using O(1) set lookups for extensions."""
+    valid_exts = {'.opus', '.mp3', '.flac', '.m4a', '.ogg', '.wav'}
+    return [str(p) for p in root_dir.rglob("*") if p.suffix.lower() in valid_exts]
+
+def get_playlist_media(playlist_path: Path) -> list[str]:
+    """Parses M3U playlists ignoring comments and empty lines."""
+    with playlist_path.open('r', encoding='utf-8') as f:
+        return [line.strip() for line in f if line.strip() and not line.startswith('#')]
+
+def fisher_yates_shuffle(arr: list[str]) -> None:
+    """In-place Fisher-Yates shuffle."""
+    n = len(arr)
+    for i in range(n):
+        idx = random.randrange(i, n)
+        arr[i], arr[idx] = arr[idx], arr[i]
+
+def stream_to_mpv(media_files: list[str]) -> None:
+    """Streams the playlist to mpv as a single stdin buffer."""
+    if not media_files:
+        sys.exit("Error: No valid media files found.")
+        
+    fisher_yates_shuffle(media_files)
+    
+    try:
+        subprocess.run(
+            ["mpv", "--cache=yes", "--playlist=-"],
+            input="\n".join(media_files),
+            text=True,
+            check=True
+        )
+    except subprocess.CalledProcessError:
+        sys.exit("Error: mpv execution failed.")
+
+def main() -> None:
+    target = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("./")
+    
+    media_files: list[str] = []
+
+    if target.is_dir():
+        media_files = get_directory_media(target)
+    elif target.is_file() and target.suffix.lower() in {'.m3u', '.m3u8'}:
+        media_files = get_playlist_media(target)
+    else:
+        sys.exit("Usage:\n\tshuffle-and-play.py [root_dir]\n\tshuffle-and-play.py playlist.m3u")
+
+    stream_to_mpv(media_files)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(1)

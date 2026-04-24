@@ -1,14 +1,46 @@
 #!/bin/sh
-# music-browser: POSIX dmenu interface for mpv
+# mbrowser: POSIX dmenu interface and i3 spatial orchestrator.
 
 MUSIC_DIR="/media/luiscruz/Toshiba/Hi-Fi Music"
-
-[ ! -d "$MUSIC_DIR" ] && printf "Error: Drive not mounted\n" >&2 && exit 1
+[ ! -d "$MUSIC_DIR" ] && exit 1
 
 EXTS_REGEX='.*\.\(flac\|mp3\|m4a\|opus\|ogg\|wav\)$'
 
-play_music() {
-    kitty --title "mpv-music" "$@"
+ID=$$
+STATUS_CLS="music_status_$ID"
+MPV_TTL="music_mpv_gui_$ID"
+CAVA_TTL="music_cava_term_$ID"
+
+orchestrate() {
+    kitty --class="$STATUS_CLS" --title="music_status_term" "$@" &
+    KITTY_PID=$!
+
+    # wait for x11 mapping (2.0s timeout).
+    for i in $(seq 1 20); do
+        i3-msg -t get_tree | grep -q "\"name\":\"$MPV_TTL\"" && break
+        sleep 0.1
+    done
+
+    # ipc geometric mutation.
+    i3-msg "[title=\"$MPV_TTL\"] focus; move right" >/dev/null
+    i3-msg "[class=\"$STATUS_CLS\"] focus" >/dev/null
+    i3-msg 'split v' >/dev/null
+
+    # spawn spectrum analyzer.
+    kitty --class="music_cava" --title="$CAVA_TTL" -e cava &
+    CAVA_PID=$!
+
+    # lock input focus back to the multimedia interface.
+    for i in $(seq 1 20); do
+        i3-msg -t get_tree | grep -q "\"name\":\"$CAVA_TTL\"" && break
+        sleep 0.1
+    done
+    i3-msg "[title=\"$MPV_TTL\"] focus" >/dev/null
+
+    # memory and process tree garbage collection.
+    wait "$KITTY_PID"
+    kill -TERM "$CAVA_PID" >/dev/null 2>&1
+    exit 0
 }
 
 ARTIST=$(find "$MUSIC_DIR" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | dmenu -i -l 20 -p "Artist:")
@@ -21,26 +53,27 @@ MODE=$(printf "Album\nFull Discography\nShuffle\nSingle Song" | dmenu -i -p "$AR
 case "$MODE" in
     Album)
         ALBUM=$(find "$ART_PATH" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | dmenu -i -l 20 -p "Album:")
-        [ -n "$ALBUM" ] && play_music sh -c 'find "$1" -regex "$2" | sort | mpv --cache=yes --playlist=-' _ "$ART_PATH/$ALBUM" "$EXTS_REGEX"
+        [ -z "$ALBUM" ] && exit 0
+        
+        # Injection of MPV_TTL as $3 to ensure safe interpretation of spaces and quotes.
+        orchestrate sh -c 'find "$1" -regex "$2" | sort | mpv --force-window=yes --title="$3" --playlist=-' _ "$ART_PATH/$ALBUM" "$EXTS_REGEX" "$MPV_TTL"
         ;;
 
     "Full Discography")
-        play_music sh -c 'find "$1" -regex "$2" | sort | mpv --cache=yes --playlist=-' _ "$ART_PATH" "$EXTS_REGEX"
+        orchestrate sh -c 'find "$1" -regex "$2" | sort | mpv --force-window=yes --title="$3" --playlist=-' _ "$ART_PATH" "$EXTS_REGEX" "$MPV_TTL"
         ;;
 
     Shuffle)
-        play_music shuffle-and-play "$ART_PATH"
+        orchestrate sh -c 'find "$1" -regex "$2" | shuf | mpv --force-window=yes --title="$3" --playlist=-' _ "$ART_PATH" "$EXTS_REGEX" "$MPV_TTL"
         ;;
 
     "Single Song")
         CHOICE=$(find "$ART_PATH" -regex "$EXTS_REGEX" | \
                  awk -v p="$ART_PATH/" '{ sub(p, ""); printf "%-30s | %s\n", substr($0, 1, index($0, "/")-1), substr($0, index($0, "/")+1) }' | \
                  dmenu -i -l 20 -p "Song:")
-        
         [ -z "$CHOICE" ] && exit 0
         
         REL_PATH=$(printf "%s" "$CHOICE" | awk -F ' \\| ' '{gsub(/ +$/, "", $1); print $1 "/" $2}')
-        
-        play_music mpv "$ART_PATH/$REL_PATH"
+        orchestrate mpv --force-window=yes --title="$MPV_TTL" "$ART_PATH/$REL_PATH"
         ;;
 esac

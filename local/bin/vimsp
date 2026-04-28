@@ -1,0 +1,21 @@
+#!/bin/bash
+
+FILE="${HOME}/tmp/scratch-$(date +'%Y%m%d%H%M%S').md"
+mkdir -p "$(dirname "$FILE")"
+
+kitty --class="scratchpad_instance" -e nvim \
+    -c "autocmd BufWinLeave * silent! %y+" \
+    -c "nnoremap ZZ :wq<CR>" \
+    -c "nnoremap <Space>q :wq<CR>" \
+    "$FILE" &
+PID=$!
+
+while ! xdotool search --class "scratchpad_instance" > /dev/null 2>&1; do
+    sleep 0.05
+done
+
+WIN_ID=$(xdotool search --class "scratchpad_instance" | tail -1)
+i3-msg "[id=$WIN_ID] floating enable, move position center, resize set 800 600" > /dev/null
+
+wait "$PID"
+rm -f "$FILE"

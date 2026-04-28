@@ -5,6 +5,7 @@ setopt APPEND_HISTORY
 setopt SHARE_HISTORY
 setopt HIST_REDUCE_BLANKS
 setopt NO_CLOBBER
+setopt PROMPT_SUBST
 
 autoload -Uz compinit
 if [[ -n ${ZDOTDIR:-$HOME}/.zcompdump(#qN.m-1) ]]; then
@@ -13,40 +14,78 @@ else
   compinit
 fi
 
-bindkey -e
+KEYTIMEOUT=1
+bindkey -v
+
+
+bindkey -M viins '^P' up-line-or-history
+bindkey -M viins '^N' down-line-or-history
+bindkey -M viins '^R' history-incremental-search-backward
+
 bindkey '^ ' autosuggest-accept
 bindkey '^j' autosuggest-execute
-bindkey '^[[1;5C' forward-word
-bindkey '^[[1;5D' backward-word
 
-PROMPT='[%n@%F{red}%m%f %F{yellow}%3~%f]%(?..%F{red}[%?]%f)%(!.#.$) '
+function zle-line-init zle-keymap-select {
+    if [[ "${KEYMAP}" == "vicmd" ]]; then
+        VI_STATE="%F{blue}❮%f"
+    else
+        VI_STATE="%F{green}%(!.#.$)%f"
+    fi
+    zle reset-prompt
+}
+
+zle -N zle-line-init
+zle -N zle-keymap-select
+
+PROMPT='[%n@%F{red}%m%f %F{yellow}%3~%f]%(?..%F{red}[%?]%f)${VI_STATE} '
 
 eval "$(zoxide init zsh)"
 
 source $HOME/miniforge3/etc/profile.d/conda.sh
 
-  # Use history and completion for suggestions
-  ZSH_AUTOSUGGEST_STRATEGY=(completion)
+ZSH_AUTOSUGGEST_STRATEGY=(completion)
 
-function kittyrc() {
+kittyrc() {
     nvim ~/.config/kitty/kitty.conf
 }
-function base() {
+base() {
     conda activate base
 }
-function skynet() {
+skynet() {
     conda activate skynet
 }
-function zshrc() {
+zshrc() {
     nvim ~/.zshrc 
 }
-function envconfig() {
+envconfig() {
     nvim ~/.zshenv
 }
-function reload() {
+reload() {
     exec zsh
 }
 
+zls() {
+    zoxide query "$@"
+    ls -ltr --color=auto "$(zoxide query "$@")"
+}
+
+zy() {
+    local tmp cwd target
+    
+    if [ -n "$1" ]; then
+        target="$(zoxide query "$@")"
+        [ -d "$target" ] || return 1
+        set -- "$target"
+    fi
+    
+    tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
+    command yazi "$@" --cwd-file="$tmp"
+    
+    cwd="$(cat -- "$tmp")"
+    [ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && [ -d "$cwd" ] && builtin cd -- "$cwd"
+    
+    rm -f -- "$tmp"
+}
 
 function y() {
 	local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
@@ -75,8 +114,14 @@ alias mv='mv -iv'
 alias rm='rm -Iv'
 alias mkdir='mkdir -pv'
 alias clip='xclip -selection clipboard'
-alias texclean='rm -fv *.aux *.log *.out *.toc *.bbl *.blg *.fdb_latexmk *.fls *.synctex.gz'
-alias inkfig='inkscape-figures'
+alias icat="kitten icat"
+alias ports='ss -tulanp'
+
+
+alias texwatch='latexmk -pvc -pdf -interaction=nonstopmode'
+alias texclean='latexmk -c && rm -fv *.bbl *.run.xml *.synctex.gz'
+alias texpurge='latexmk -C && rm -fv *.bbl *.run.xml *.synctex.gz'
+
 alias :qconda='conda deactivate && echo "[Conda Environment Exited]"'
 
 alias bashrc='${EDITOR:-nvim} $HOME/.bashrc'
@@ -85,7 +130,11 @@ alias nvimrc='${EDITOR:-nvim} $HOME/.config/nvim/init.lua'
 alias tmuxconf='${EDITOR:-nvim} $HOME/.tmux.conf'
 alias i3rc='${EDITOR:-nvim} $HOME/.config/i3/config'
 
-ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=#727169"
-ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+typeset -A ZSH_HIGHLIGHT_STYLES
+ZSH_HIGHLIGHT_STYLES[path]='fg=cyan,underline'
+ZSH_HIGHLIGHT_STYLES[command]='fg=green,bold'
+ZSH_HIGHLIGHT_STYLES[alias]='fg=magenta'
+ZSH_HIGHLIGHT_STYLES[function]='fg=blue,bold'
+ZSH_AUTOSUGGEST_STRATEGY=(completion)
 source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh

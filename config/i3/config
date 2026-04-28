@@ -11,7 +11,7 @@ font pango:DejaVu Sans Mono 10
 bindsym $mod+Return exec kitty
 
 # Start a terminal with music files open
-# bindsym $mod+Shift+m exec kitty --command vifm ~/Music/library ~/Music/library
+# bindsym $mod+Shift+m exec kitty -- vifm -c only "/media/luiscruz/Toshiba/Hi-Fi Music"
 
 # Reset desired typematic rate
 bindsym $mod+Shift+x exec --no-startup-id xset r rate 200 40 && xmodmap ~/.xmodmaprc
@@ -22,20 +22,22 @@ bindsym $mod+Shift+o exec firefox
 # Open a GUI file browser
 bindsym $mod+Shift+n exec nautilus
 
+# Open Bookmarks with surf
+bindsym $sup+shift+b exec --no-startup-id websearch
+
 # Use Mouse+$mod to drag floating windows to their wanted position
 floating_modifier $mod
 
 # Kill focused window
 bindsym $mod+Shift+q kill
 
-# Suspend computer
-# bindsym $mod+Shift+s exec --no-startup-id systemctl suspend
-
+# Start Power Managment Script
+bindsym $mod+F4 exec --no-startup-id power
 # Start dmenu
 bindsym $mod+space exec --no-startup-id dmenu_run
 
 # Reload the configuration file
-bindsym $mod+Shift+c reload
+bindsym $mpod+Shift+c reload
 
 # Restart i3 inplace (preserves your layout/session, can be used to upgrade i3)
 bindsym $mod+Shift+r restart
@@ -180,7 +182,7 @@ exec --no-startup-id dex --autostart --environment i3
 exec_always --no-startup-id $HOME/.local/bin/.fehbg
 exec --no-startup-id xss-lock --transfer-sleep-lock -- i3lock --nofork \
   --radius 110 \
-  --image=/home/luiscruz/Pictures/wallpapers/lock-screen.jpg \
+  --image=/home/luiscruz/Pictures/Wallpapers/Nature/secluded-grove-pixel.png \
   --fill \
   --inside-color=d8dee9ff \
   --ring-color=5e81acff \
@@ -201,12 +203,12 @@ exec --no-startup-id xss-lock --transfer-sleep-lock -- i3lock --nofork \
   --time-color=2e3440ff \
   --date-color=2e3440ff \
   --greeter-color=2e3440ff \
-  --time-font="Iosevka" \
-  --date-font="Iosevka" \
-  --layout-font="Iosevka" \
-  --verif-font="Iosevka" \
-  --wrong-font="Iosevka" \
-  --greeter-font="Iosevka"
+  --time-font="Iosevka Nerd Font Mono" \
+  --date-font="Iosevka Nerd Font Mono" \
+  --layout-font="Iosevka Nerd Font Mono" \
+  --verif-font="Iosevka Nerd Font Mono" \
+  --wrong-font="Iosevka Nerd Font Mono" \
+  --greeter-font="Iosevka Nerd Font Mono"
 
 # resize window (you can also use the mouse for that)
 mode "resize" {
@@ -312,14 +314,14 @@ exec --no-startup-id clipmenud
 # Open clipboard history
 bindsym $mod+c exec --no-startup-id clipmenu
 
+# keyboard layout managment
+bindsym $sup+space exec --no-startup-id "setxkbmap -layout us,latam -option 'grp:win_space_toggle'
 # Call the xcolor color picker and save the result to CLIPBOARD
 bindsym --release $mod+Shift+p exec --no-startup-id xcolor --selection clipboard
 
-# Screenshot a selected region with maim and slop
-bindsym Print exec --no-startup-id "${HOME}/scripts/screenshot.bash -s"
 
 # Screenshot dmenu manager using maim
-bindsym Shift+Print exec --no-startup-id "${HOME}/scripts/dm-shot"
+bindsym $mod+shift+s exec --no-startup-id dm-shot
 
 # # Toggle Inkscape key interception layer
 # bindsym $mod+Shift+i exec --no-startup-id "inkscape-keys-toggle.bash"
@@ -328,23 +330,35 @@ bindsym Shift+Print exec --no-startup-id "${HOME}/scripts/dm-shot"
 bindsym $mod+Shift+d exec "${HOME}/scripts/toggle-internal-display.bash"
 
 # Open music browser using dmenu
-bindsym $mod+Shift+t exec --no-startup-id "~/.config/i3/scripts/music-browser.sh"
+bindsym $mod+Shift+m exec --no-startup-id mbrowser
 
 # Queue builder with fzf
-bindsym $mod+Shift+y exec --no-startup-id "~/.config/i3/scripts/queue-builder.sh"
-
-# Screen OCR: select area, extract text and copy to clipboard
-bindsym $mod+shift+s exec --no-startup-id "~/.config/i3/scripts/ocr-clip.sh"
+bindsym $mod+Shift+y exec --no-startup-id musicq
 
 # Set display color temperature
-bindsym $mod+n exec --no-startup-id "${HOME}/scripts/redshift-set.sh"
+bindsym $mod+n exec --no-startup-id chtemp
 
-# bindsym $mod+Shift+t exec alacritty --command "cd ${HOME}/Music/library/latin/cuba/timba && walkandplay.py ./"
+# Start razer-dmenu
+bindsym $sup+r exec drazer
+
+# -------------------------------------------------------------
+# GPU Screen Recorder - Unified Keybinds
+# -------------------------------------------------------------
+
+# Initialize circular buffer on startup
+exec --no-startup-id ~/.local/bin/vrecorder --replay
+
+# Alt+Z: Invoke main control interface (dmenu)
+bindsym Mod1+z exec --no-startup-id ~/.local/bin/vrecorder
+
+# Alt+F10: Flush circular buffer to disk (Save Clip)
+bindsym Mod1+F10 exec --no-startup-id ~/.local/bin/vrecorder --save
+
+# Alt+F9: Toggle linear recording (Start/Stop)
+bindsym Mod1+F9 exec --no-startup-id ~/.local/bin/vrecorder --record
 # --------------------------------------------- #
 # Autostarting
 # --------------------------------------------- #
-# Set display temperature to 3000K
-exec_always --no-startup-id redshift -P -O 3000 
-
+exec --no-startup-id xrandr --output DP-0 --mode 1920x1080 --rate 143.85
 # Start compositor
 exec_always --no-startup-id picom -b

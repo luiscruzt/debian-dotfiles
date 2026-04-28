@@ -1,21 +1,17 @@
 #!/bin/sh
+# get process using dmenu
 
-# dmenu appearance configuration
 DMENU="dmenu -i -l 20 -p Process:"
 
-# Data Acquisition and Formatting
 # Column order: PID (1), CPU% (2), RAM in MB (3), Command Name (4)
 PROCS=$(ps -eo pid,pcpu,rss,comm --no-headers --sort=-pcpu | \
         awk '{printf "%-7s | CPU: %-5s%% | RAM: %-8.2f MB | %s\n", $1, $2, $3/1024, $4}')
 
-# User selection via dmenu
 SELECTED=$(echo "$PROCS" | $DMENU)
 [ -z "$SELECTED" ] && exit 0
 
-# Extract PID (Field 1)
 PID=$(echo "$SELECTED" | awk '{print $1}')
 
-# Signal Dispatch Menu
 ACTION=$(echo "SIGTERM\nSIGKILL\nSIGHUP\nRENICE" | dmenu -i -p "Action for PID $PID:")
 
 case "$ACTION" in

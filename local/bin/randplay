@@ -16,6 +16,7 @@ CAVA_TTL="music_cava_term_$ID"
 # spawn primary terminal and mpv instance.
 kitty --class="$STATUS_CLS" --title="music_status_term" \
     mpv --force-window=yes --title="$MPV_TTL" "$ALBUM" &
+
 KITTY_PID=$!
 
 # wait for x11 mapping (2.0s timeout).

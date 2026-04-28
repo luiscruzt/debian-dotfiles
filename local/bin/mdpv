@@ -1,0 +1,130 @@
+#!/bin/sh
+# mdpv - POSIX Markdown Previewer
+
+die() { printf 'mdpv: %s\n' "$1" >&2; exit 1; }
+
+usage() {
+    printf "Usage: mdpv [-d|-l] [-t] [-n] [-e] [-w] [-h] <file.md | directory>\n\n"
+    printf "Options:\n"
+    printf "  -d    Force dark mode\n"
+    printf "  -l    Force light mode\n"
+    printf "  -t    Generate Table of Contents (TOC)\n"
+    printf "  -n    Number sections\n"
+    printf "  -e    Embed resources (Base64 encode images)\n"
+    printf "  -w    Watch mode (requires 'entr' utility)\n"
+    printf "  -h    Show help\n"
+    exit 0
+}
+
+open_window() {
+    if [ -n "$BROWSER" ]; then
+        "$BROWSER" --new-window "$1" >/dev/null 2>&1 &
+    else
+        xdg-open "$1" >/dev/null 2>&1 &
+    fi
+}
+
+THEME="auto"
+P_TOC=""
+P_NUM=""
+P_EMBED=""
+P_WATCH=""
+
+while getopts "dlhtnew" opt; do
+    case "$opt" in
+        d) THEME="dark" ;;
+        l) THEME="light" ;;
+        t) P_TOC="--toc" ;;
+        n) P_NUM="--number-sections" ;;
+        e) P_EMBED="--embed-resources" ;;
+        w) P_WATCH="1" ;;
+        h) usage ;;
+        \?) usage ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+[ $# -eq 0 ] && usage
+
+if [ "$THEME" = "auto" ]; then
+    HOUR=$(date +%H)
+    if [ "$HOUR" -ge 6 ] && [ "$HOUR" -lt 20 ]; then
+        THEME="light"
+    else
+        THEME="dark"
+    fi
+fi
+
+if [ "$THEME" = "light" ]; then
+    VARS='--bg:#ffffff;--surface:#f6f8fa;--border:#d0d7de;--text:#1f2328;--muted:#656d76;--accent:#0969da;--head:#24292f;--code-bg:#f6f8fa;--code-fg:#1f2328;--mark:#fff8c5;--hr:#d0d7de'
+else
+    VARS='--bg:#000000;--surface:#0a0a0a;--border:#222222;--text:#d1d5db;--muted:#808080;--accent:#58a6ff;--head:#ffffff;--code-bg:#0a0a0a;--code-fg:#e5e7eb;--mark:#4d4d00;--hr:#222222'
+fi
+
+# 1. Isolated memory allocation
+TMP_DIR="/tmp/mdpv"
+mkdir -p "$TMP_DIR"
+
+STYLE_FILE=$(mktemp "$TMP_DIR/style.XXXXXX.css") || die "Memory allocation failed"
+
+cat > "$STYLE_FILE" << CSS
+<style>
+:root{$VARS}
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--bg);color:var(--text)}
+body{max-width:72ch;margin:3rem auto;padding:0 1.5rem;font-family:Georgia,serif;font-size:1.05rem;line-height:1.7}
+h1,h2,h3,h4,h5,h6{font-family:Georgia,serif;font-weight:600;color:var(--head);line-height:1.25;margin:1.8em 0 .5em}
+h1{font-size:1.9rem;padding-bottom:.3em;border-bottom:1px solid var(--border)}
+h2{font-size:1.45rem;padding-bottom:.2em;border-bottom:1px solid var(--border)}
+h3{font-size:1.15rem}h4{font-size:1rem}p{margin:.75em 0}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+hr{border:none;border-top:1px solid var(--hr);margin:2rem 0}
+blockquote{margin:1rem 0;padding:.4em 1em;border-left:4px solid var(--border);color:var(--muted);font-style:italic}
+blockquote p{margin:0}
+code{font-family:ui-monospace,monospace;font-size:.85em;background:var(--code-bg);color:var(--code-fg);padding:.15em .4em;border-radius:4px;border:1px solid var(--border)}
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:6px;padding:1rem 1.2rem;overflow-x:auto;margin:1rem 0}
+pre code{background:none;border:none;padding:0;font-size:.9em}
+table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.95em}
+th{background:var(--surface);font-weight:600;text-align:left;padding:.5em .75em;border:1px solid var(--border)}
+td{padding:.45em .75em;border:1px solid var(--border)}
+tr:nth-child(even) td{background:var(--surface)}
+img{max-width:100%;border-radius:4px;display:block;margin:1rem auto}
+mark{background:var(--mark);padding:.05em .2em;border-radius:2px}
+ul,ol{padding-left:1.6em;margin:.5em 0}li{margin:.2em 0}
+.footnotes{font-size:.88em;color:var(--muted);border-top:1px solid var(--border);margin-top:2rem;padding-top:1rem}
+::selection{background:var(--accent);color:#000000}
+#TOC{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1.5rem;margin-bottom:2rem}
+#TOC ul{list-style:none;padding-left:1.5rem}
+#TOC>ul{padding-left:0}
+#TOC a{color:var(--text)}
+#TOC a:hover{color:var(--accent)}
+</style>
+CSS
+
+compile_and_open() {
+    local_file="$1"
+    TITLE=$(basename "$local_file" .md)
+    out="$TMP_DIR/${TITLE}_$(date +%s).html"
+    
+    pandoc "$local_file" -s --mathml $P_TOC $P_NUM $P_EMBED --metadata title="$TITLE" -H "$STYLE_FILE" -o "$out"
+    open_window "$out"
+    
+    if [ -n "$P_WATCH" ]; then
+        printf "%s\n" "$local_file" | entr -n -p pandoc "$local_file" -s --mathml $P_TOC $P_NUM $P_EMBED --metadata title="$TITLE" -H "$STYLE_FILE" -o "$out" >/dev/null 2>&1 &
+    fi
+}
+
+for arg in "$@"; do
+    if [ -d "$arg" ]; then
+        for f in "$arg"/*.md; do
+            [ -f "$f" ] && compile_and_open "$f"
+        done
+    elif [ -f "$arg" ]; then
+        compile_and_open "$arg"
+    else
+        printf "mdpv: '%s' is not a valid file or directory.\n" "$arg" >&2
+    fi
+done
+
+find "$TMP_DIR" -type f -mmin +10 -exec rm -f {} + >/dev/null 2>&1 &
+[ -z "$P_WATCH" ] && (sleep 5 && rm -f "$STYLE_FILE") &

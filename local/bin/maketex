@@ -1,7 +1,7 @@
 #!/bin/sh
 # maketex: POSIX LaTeX scaffold.
 
-BASE_DIR="$HOME/Documents/latex"
+BASE_DIR="$HOME/latex"
 VAULT_DIR="$HOME/texvault"
 
 # Dependecy check
@@ -23,7 +23,6 @@ DIR="$BASE_DIR/$CAT/$DIR_NAME"
 
 [ -d "$DIR" ] && exit 1
 
-# Logic state machine
 case "$CAT" in
     phil|lit)
         SECTIONS="01_introduction 02_argumentation 03_objections 04_conclusion"

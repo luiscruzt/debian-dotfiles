@@ -1,5 +1,5 @@
 #!/bin/sh
-# mbrowser: POSIX dmenu interface and i3 spatial orchestrator.
+# mbrowser: POSIX dmenu interface for music 
 
 MUSIC_DIR="/media/luiscruz/Toshiba/Hi-Fi Music"
 [ ! -d "$MUSIC_DIR" ] && exit 1
@@ -47,7 +47,7 @@ ARTIST=$(find "$MUSIC_DIR" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; 
 [ -z "$ARTIST" ] && exit 0
 ART_PATH="$MUSIC_DIR/$ARTIST"
 
-MODE=$(printf "Album\nFull Discography\nShuffle\nSingle Song" | dmenu -i -p "$ARTIST:")
+MODE=$(printf "Full Discography\nAlbum\nSingle Song\nShuffle" | dmenu -i -p "$ARTIST:")
 [ -z "$MODE" ] && exit 0
 
 case "$MODE" in

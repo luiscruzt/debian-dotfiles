@@ -1,0 +1,13 @@
+#!/bin/sh
+# texmenu: dmenu prompt with pre-loaded LaTeX packages
+
+TEX_DOC_ROOT="$(kpsewhich -var-value TEXMFDIST)/doc"
+
+pkg=$(find "$TEX_DOC_ROOT"/*/* -prune -type d 2>/dev/null \
+    | awk -F'/' '{print $NF}' \
+    | sort -u \
+    | dmenu -l 20 -p "texdoc:")
+
+[ -z "$pkg" ] && exit 0
+
+texdoc "$pkg" >/dev/null 2>&1 &

@@ -1,0 +1,66 @@
+#!/bin/sh
+# POSIX dmenu interface for razer-cli
+
+DMENU="dmenu -i -l 20 -p"
+
+EFFECTS="Static:static
+Spectrum Cycling:spectrum
+Breathing Single:breath_single
+Breathing Dual:breath_dual
+Breathing Triple:breath_triple
+Breathing Random:breath_random
+Reactive:reactive
+Ripple:ripple
+Ripple Random:ripple_random
+Starlight Single:starlight_single
+Starlight Dual:starlight_dual
+Starlight Random:starlight_random
+Wave:wave
+Multicolor:multicolor
+Off:none"
+
+COLORS="Random:RANDOM
+White:FFFFFF
+Black / Off:000000
+Red:FF0000
+Green:00FF00
+Blue:0000FF
+Cyan:00FFFF
+Magenta:FF00FF
+Yellow:FFFF00
+Orange:FFA500
+Purple:800080
+Nord Blue:5E81AC
+Nord Frost:8FBCBB
+Nord Red:BF616A
+Tokyo Night Blue:7AA2F7
+Tokyo Night Purple:BB9AF7
+Dracula Pink:FF79C6
+Dracula Purple:BD93F9
+Gruvbox Red:CC241D
+Gruvbox Yellow:D79921
+Matrix Green:00FF41
+Crimson:DC143C
+Gold:FFD700"
+
+sel_effect=$(printf "%b" "$EFFECTS" | cut -d':' -f1 | $DMENU "Effect:")
+[ -z "$sel_effect" ] && exit 0
+
+effect=$(printf "%b" "$EFFECTS" | awk -F':' -v target="$sel_effect" '$1 == target {print $2}')
+[ -z "$effect" ] && effect="$sel_effect"
+
+case "$effect" in
+    static|breath_single|breath_dual|breath_triple|reactive|ripple|starlight_single|starlight_dual|multicolor)
+        
+        sel_color=$(printf "%b" "$COLORS" | cut -d':' -f1 | $DMENU "Color:")
+        [ -z "$sel_color" ] && exit 0
+        
+        color=$(printf "%b" "$COLORS" | awk -F':' -v target="$sel_color" '$1 == target {print $2}')
+        [ -z "$color" ] && color="$sel_color"
+
+        exec razer-cli -e "$effect" -c "$color" -z all
+        ;;
+    *)
+        exec razer-cli -e "$effect" -z all
+        ;;
+esac

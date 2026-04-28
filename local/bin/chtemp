@@ -1,5 +1,5 @@
 #!/bin/sh
-# tempset: Color temperature multiplexer.
+# chtemp: Color temperature multiplexer
 
 MENU="Night — 2500K\nDay — 5000K\nNeutral — 6500K"
 

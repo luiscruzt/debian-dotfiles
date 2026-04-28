@@ -1,7 +1,8 @@
 #!/bin/sh
 # websearch: Bookmark and web query multiplexer.
+# requires surf
 
-BOOKMARKS="$HOME/Documents/firefox/bookmarks.html"
+BOOKMARKS="$HOME/Documents/Bookmarks/bookmarks.html"
 
 if [ ! -f "$BOOKMARKS" ]; then
     printf "Error: Dependency artifact not found at %s\n" "$BOOKMARKS" >&2
@@ -23,9 +24,9 @@ if [ -z "$URL" ]; then
             ;;
         *) 
             QUERY=$(printf "%s" "$SELECTED" | tr ' ' '+')
-            URL="https://www.google.com/search?q=$QUERY" 
+            URL="https://www.duckduckgo.com/search?q=$QUERY" 
             ;;
     esac
 fi
 
-exec firefox "$URL"
+exec surf "$URL"

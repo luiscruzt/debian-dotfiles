@@ -1,0 +1,32 @@
+#!/bin/sh
+# qshot: Streamlined screen capture
+
+DIR="${HOME}/Pictures/screenshots"
+DMENU_P="dmenu -i -p"
+
+ACTION=$(printf "Full\nWindow\nSelection" | $DMENU_P "Capture:")
+[ -z "$ACTION" ] && exit 0
+
+DATE=$(date +%Y%m%d_%H%M%S)
+NAME="shot_${DATE}.png"
+mkdir -p "$DIR"
+
+case "$ACTION" in
+    Full)      
+        scrot "$DIR/$NAME" 
+        ;;
+    Window)    
+        scrot -u "$DIR/$NAME" 
+        ;;
+    Selection) 
+        scrot --freeze -s "$DIR/$NAME" 
+        ;;
+    *) 
+        exit 0 
+        ;;
+esac
+
+if [ -f "$DIR/$NAME" ]; then
+    xclip -selection clipboard -t image/png -i "$DIR/$NAME"
+    notify-send "Screenshot" "Saved and copied: $NAME"
+fi

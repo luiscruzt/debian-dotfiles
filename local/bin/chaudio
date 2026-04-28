@@ -1,5 +1,5 @@
 #!/bin/sh
-# audioswitch: Audio sink multiplexer.
+# chaudio: Audio sink multiplexer
 
 # Parses the daemon output to generate a matrix of: <sink_name> | <description>
 SINKS=$(pactl list sinks | awk '

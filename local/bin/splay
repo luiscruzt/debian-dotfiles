@@ -1,5 +1,5 @@
 #!/bin/sh
-# splay: Recursive audio shuffler and spatial orchestrator.
+# splay: Recursive audio shuffler
 
 TARGET="${1:-.}"
 [ ! -d "$TARGET" ] && printf "Error: Directory not found.\n" >&2 && exit 1

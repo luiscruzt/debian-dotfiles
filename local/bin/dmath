@@ -1,16 +1,12 @@
 #!/bin/sh
 # dm-math: minimalist scientific calculator via bc
 
-# Configuration for precision (scale)
 SCALE=4
 DMENU_P="dmenu -p"
 
-# Input expression
 EXPR=$(: | $DMENU_P "Math:")
 [ -z "$EXPR" ] && exit 0
 
-# Calculate using the standard math library (-l)
-# Result is copied to clipboard for immediate use in LaTeX/code
 RES=$(echo "scale=$SCALE; $EXPR" | bc -l | sed 's/^\./0./')
 
 if [ -n "$RES" ]; then

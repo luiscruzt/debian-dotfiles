@@ -50,3 +50,17 @@
  This package will install a handler for command_not_found that looks up
  programs not currently installed but available from the repositories.
 
+
+## Package: qalc
+Description: Powerful and easy to use command line calculator
+ Qalculate! is small and simple to use but with much power and versatility
+ underneath.  Features include customizable functions, units, arbitrary
+ precision using a one-line fault-tolerant expression entry.
+ .
+ This package contains the command line version of Qalculate!.
+
+## cliamp
+- Description: A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Bilibili, Spotify, Xiaoyuzhou (小宇宙), Navidrome, Plex, and Jellyfin with a spectrum visualizer, parametric EQ, and playlist management.
+
+https://github.com/bjarneo/cliamp.git
+

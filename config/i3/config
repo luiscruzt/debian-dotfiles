@@ -2,13 +2,24 @@
 set $mod Mod1
 set $shift Shift
 set $sup Mod4
+
 # Font for window titles status bar
 font pango:DejaVu Sans Mono 10
 
 # SYSTEM COMMANDS
 # ------------------------------------ #
+
+# toggle bar
+bindsym $sup+b bar mode toggle
+
 # Start a terminal
 bindsym $mod+Return exec kitty
+
+# Open tmux
+bindsym $sup+shift+Return exec kitty -- tmux
+
+# Open pulsemixer control 
+bindsym $mod+Shift+a exec --no-startup-id kitty --class pulsemixer_float pulsemixer
 
 # Start a terminal with music files open
 # bindsym $mod+Shift+m exec kitty -- vifm -c only "/media/luiscruz/Toshiba/Hi-Fi Music"
@@ -17,13 +28,22 @@ bindsym $mod+Return exec kitty
 bindsym $mod+Shift+x exec --no-startup-id xset r rate 200 40 && xmodmap ~/.xmodmaprc
 
 # Open a web browser
-bindsym $mod+Shift+o exec firefox
+bindsym $mod+Shift+b exec firefox
 
+# Open a private browser
+bindsym $sup+Shift+b exec --no-startup-id librewolf --private-window
+
+# Open quickfzf
+bindsym $mod+Shift+o exec --no-startup-id kitty  --class quickfzf_float qfzf
 # Open a GUI file browser
+
 bindsym $mod+Shift+n exec nautilus
 
-# Open Bookmarks with surf
-bindsym $sup+shift+b exec --no-startup-id websearch
+# Open LocalSend
+bindsym $sup+l exec localsend_app
+
+# # Open Bookmarks with surf
+# bindsym $sup+shift+b exec --no-startup-id websearch
 
 # Use Mouse+$mod to drag floating windows to their wanted position
 floating_modifier $mod
@@ -33,6 +53,7 @@ bindsym $mod+Shift+q kill
 
 # Start Power Managment Script
 bindsym $mod+F4 exec --no-startup-id power
+
 # Start dmenu
 bindsym $mod+space exec --no-startup-id dmenu_run
 
@@ -44,6 +65,13 @@ bindsym $mod+Shift+r restart
 
 # exit i3 (logs you out of your X session)
 bindsym $mod+Shift+e exec "i3-nagbar -t warning -m 'You pressed the exit shortcut. Do you really want to exit i3? This will end your X session.' -B 'Yes, exit i3' 'i3-msg exit'"
+
+# Toggle window opacity (100% <-> 80%)
+bindsym $sup+Shift+o exec --no-startup-id toggle-opacity
+
+# Toggle picom animations (Static <-> Animated)
+bindsym $sup+Shift+a exec --no-startup-id toggle-animations
+
 # ------------------------------------ #
 
 # Float matplotlib windows
@@ -51,15 +79,19 @@ for_window [class="R_x11"] floating enable
 for_window [class="matplotlib"] floating enable
 for_window [class="Matplotlib"] floating enable
 for_window [class="gnuplot_qt"] floating enable
+for_window [class="pulsemixer_float"] floating enable, resize set 800 500, move position center
+for_window [class="quickfzf_float"] floating enable, resize set 1000 700, move position center
+
 
 # GAPS
 # --------------------------------------------- #
 gaps inner 10
 
-# Increase/decrease gaps
+# Increase/decrease/reset gaps
 bindsym $sup+equal gaps inner current plus 10
 bindsym $sup+minus gaps inner current minus 10
 bindsym $sup+0     gaps inner current set 10
+
 # Setting globally
 # gaps [inner|outer|horizontal|vertical|top|left|bottom|right] <px>
 
@@ -73,6 +105,7 @@ bindsym $sup+0     gaps inner current set 10
 
 # NAVIGATION
 # ------------------------------------ #
+
 focus_follows_mouse no
 
 # Change focused window
@@ -108,9 +141,6 @@ bindsym $mod+t layout toggle split
 
 # toggle tiling / floating
 bindsym $mod+Shift+f floating toggle
-
-# toggle bar
-bindsym $sup+b bar mode toggle
 
 # Define names for default workspaces for which we configure key bindings later on.
 # We use variables to avoid repeating the names in multiple places.
@@ -169,6 +199,7 @@ bindsym $mod+Shift+period exec ${HOME}/scripts/i3-move-container-lr.py right
 
 # BEGIN DEFAULT CONFIGURATION
 # -------------------------------------------- #
+
 # Start XDG autostart .desktop files using dex. See also
 # https://wiki.archlinux.org/index.php/XDG_Autostart
 exec --no-startup-id dex --autostart --environment i3
@@ -305,6 +336,7 @@ bar {
 
 # Key bindings to launch programs and similar
 # --------------------------------------------- #
+
 # Open a temporary Vim scratchpad
 bindsym $mod+Shift+v exec --no-startup-id "${HOME}/scripts/vim-anywhere.bash"
 
@@ -316,12 +348,12 @@ bindsym $mod+c exec --no-startup-id clipmenu
 
 # keyboard layout managment
 bindsym $sup+space exec --no-startup-id "setxkbmap -layout us,latam -option 'grp:win_space_toggle'
+
 # Call the xcolor color picker and save the result to CLIPBOARD
 bindsym --release $mod+Shift+p exec --no-startup-id xcolor --selection clipboard
 
-
 # Screenshot dmenu manager using maim
-bindsym $mod+shift+s exec --no-startup-id dm-shot
+bindsym $mod+shift+s exec --no-startup-id qshot
 
 # # Toggle Inkscape key interception layer
 # bindsym $mod+Shift+i exec --no-startup-id "inkscape-keys-toggle.bash"
@@ -329,8 +361,11 @@ bindsym $mod+shift+s exec --no-startup-id dm-shot
 # Toggle internal display (as a safeguard against turning it off)
 bindsym $mod+Shift+d exec "${HOME}/scripts/toggle-internal-display.bash"
 
-# Open music browser using dmenu
-bindsym $mod+Shift+m exec --no-startup-id mbrowser
+# Open music browser using fzf
+bindsym $mod+Shift+m exec --no-startup-id kitty -- smusic
+
+# Open cliamp in kitty
+bindsym $sup+Shift+m exec --no-startup-id kitty -- cliamp ; exec --no-startup-id projectMSDL
 
 # Queue builder with fzf
 bindsym $mod+Shift+y exec --no-startup-id musicq
@@ -341,24 +376,25 @@ bindsym $mod+n exec --no-startup-id chtemp
 # Start razer-dmenu
 bindsym $sup+r exec drazer
 
-# -------------------------------------------------------------
-# GPU Screen Recorder - Unified Keybinds
-# -------------------------------------------------------------
 
-# Initialize circular buffer on startup
-exec --no-startup-id ~/.local/bin/vrecorder --replay
+# -------------------------------------------------------------
+# GPU Screen Recorder
+# -------------------------------------------------------------
 
 # Alt+Z: Invoke main control interface (dmenu)
-bindsym Mod1+z exec --no-startup-id ~/.local/bin/vrecorder
+bindsym Mod1+z exec --no-startup-id ~/.local/bin/gpurec
 
 # Alt+F10: Flush circular buffer to disk (Save Clip)
-bindsym Mod1+F10 exec --no-startup-id ~/.local/bin/vrecorder --save
+bindsym Mod1+F10 exec --no-startup-id ~/.local/bin/gpurec --save
 
 # Alt+F9: Toggle linear recording (Start/Stop)
-bindsym Mod1+F9 exec --no-startup-id ~/.local/bin/vrecorder --record
+bindsym Mod1+F9 exec --no-startup-id ~/.local/bin/gpurec --record
+
 # --------------------------------------------- #
 # Autostarting
 # --------------------------------------------- #
+
 exec --no-startup-id xrandr --output DP-0 --mode 1920x1080 --rate 143.85
+
 # Start compositor
 exec_always --no-startup-id picom -b

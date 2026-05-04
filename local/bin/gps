@@ -1,26 +1,100 @@
 #!/bin/sh
-# get process using dmenu
+# gps - interactive process signal manager
 
-DMENU="dmenu -i -l 20 -p Process:"
+set -eu
 
-# Column order: PID (1), CPU% (2), RAM in MB (3), Command Name (4)
-PROCS=$(ps -eo pid,pcpu,rss,comm --no-headers --sort=-pcpu | \
-        awk '{printf "%-7s | CPU: %-5s%% | RAM: %-8.2f MB | %s\n", $1, $2, $3/1024, $4}')
+# --- Documentation ---
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    gps - interactive process signal manager
 
-SELECTED=$(echo "$PROCS" | $DMENU)
+SYNOPSIS
+    gps
+
+DESCRIPTION
+    Provides an interactive interface to view running processes, sorted by 
+    RAM usage, and send POSIX signals or modify priorities. Displays the PID, 
+    owning User, Memory consumption, and Command name.
+
+EXIT STATUS
+    0   Success or user cancellation.
+    1   Missing dependencies.
+EOF
+    exit 0
+fi
+# ---------------------
+
+for req in ps awk kill renice; do
+    if ! command -v "$req" >/dev/null 2>&1; then
+        printf "Error: Required dependency '%s' is missing.\n" "$req" >&2
+        exit 1
+    fi
+done
+
+prompt_choice() {
+    prompt_text="$1"
+    choices="$2"
+
+    if [ -t 0 ] && command -v fzf >/dev/null 2>&1; then
+        printf "%s\n" "$choices" | fzf --prompt="$prompt_text " --height=50% --layout=reverse
+    elif [ -n "${DISPLAY:-}" ] && command -v dmenu >/dev/null 2>&1; then
+        printf "%s\n" "$choices" | dmenu -i -l 20 -p "$prompt_text" || true
+    else
+        printf "Error: Interactive mode requires fzf (terminal) or dmenu (X11).\n" >&2
+        exit 1
+    fi
+}
+
+prompt_input() {
+    prompt_text="$1"
+    
+    if [ -t 0 ]; then
+        printf "%s " "$prompt_text" >/dev/tty
+        read -r user_input </dev/tty
+        printf "%s\n" "$user_input"
+    elif [ -n "${DISPLAY:-}" ] && command -v dmenu >/dev/null 2>&1; then
+        printf "" | dmenu -p "$prompt_text" || true
+    fi
+}
+
+# --- Process Data Pipeline ---
+# Using ps natively. Sorting by -rss (Resident Set Size / RAM) descending.
+set +e
+PROCS=$(ps -eo pid,user,rss,comm --no-headers --sort=-rss | awk '
+    {
+        # $1: PID, $2: USER, $3: RSS (KB), $4+: COMMAND
+        cmd=""; for(i=4; i<=NF; i++) cmd = cmd $i " ";
+        sub(/ $/, "", cmd);
+        
+        # Format: PID | USER | RAM (MB) | COMMAND
+        printf "%-7s | USER: %-10s | RAM: %-8.2f MB | %s\n", $1, $2, $3/1024, cmd
+    }
+')
+set -e
+
+SELECTED=$(prompt_choice "Process:" "$PROCS")
 [ -z "$SELECTED" ] && exit 0
 
-PID=$(echo "$SELECTED" | awk '{print $1}')
+PID=$(printf "%s\n" "$SELECTED" | awk '{print $1}')
 
-ACTION=$(echo "SIGTERM\nSIGKILL\nSIGHUP\nRENICE" | dmenu -i -p "Action for PID $PID:")
+ACTIONS="SIGTERM (15) - Graceful Termination
+SIGKILL (9) - Force Kill
+SIGHUP (1) - Reload Configuration
+RENICE - Change Scheduling Priority"
+
+ACTION_SEL=$(prompt_choice "Action for PID $PID:" "$ACTIONS")
+[ -z "$ACTION_SEL" ] && exit 0
+
+ACTION=$(printf "%s\n" "$ACTION_SEL" | awk '{print $1}')
 
 case "$ACTION" in
-    SIGTERM) kill -15 "$PID" ;;
-    SIGKILL) kill -9 "$PID" ;;
-    SIGHUP)  kill -1 "$PID"  ;;
+    SIGTERM) kill -15 "$PID" || true ;;
+    SIGKILL) kill -9 "$PID" || true ;;
+    SIGHUP)  kill -1 "$PID" || true ;;
     RENICE)  
-        PRIO=$(echo "" | dmenu -p "New Priority (-20 to 19):")
-        [ -n "$PRIO" ] && renice "$PRIO" -p "$PID"
+        PRIO=$(prompt_input "New Priority (-20 to 19):")
+        [ -n "$PRIO" ] && renice -n "$PRIO" -p "$PID" || true
         ;;
     *) exit 0 ;;
 esac

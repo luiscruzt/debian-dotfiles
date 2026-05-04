@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# i3-move-container-lr - Shift focused container and focus to adjacent workspace
+
+# --- Documentation ---
+# NAME
+#     i3-move-container-lr
+#
+# SYNOPSIS
+#     i3-move-container-lr [left|right|l|r]
+#
+# DESCRIPTION
+#     Calculates the adjacent numerical workspace (1-10), moves the currently 
+#     focused container to that target, and shifts workspace focus to follow.
+#     Operation halts at boundaries (1 and 10) to maintain spatial mapping.
+# ---------------------
+
+direction="${1:-}"
+
+# Extract numerical ID of the active workspace via IPC
+current_ws=$(i3-msg -t get_workspaces | jq '.[] | select(.focused==true).num')
+
+# Logic branch for direction and boundary validation
+case "${direction}" in
+    left|l)
+        target=$((current_ws - 1))
+        # Exit if target violates lower boundary
+        [[ "${target}" -lt 1 ]] && exit 0
+        ;;
+    right|r)
+        target=$((current_ws + 1))
+        # Exit if target violates upper boundary
+        [[ "${target}" -gt 10 ]] && exit 0
+        ;;
+    *)
+        printf "Usage: %s [left|right|l|r]\n" "${0##*/}" >&2
+        exit 1
+        ;;
+esac
+
+# Execute atomic container relocation and workspace transition
+i3-msg "move container to workspace number ${target}; workspace number ${target}" >/dev/null

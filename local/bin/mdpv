@@ -1,26 +1,56 @@
 #!/bin/sh
 # mdpv - POSIX Markdown Previewer
 
+# Enforce strict execution: exit on error and unset variables
+set -eu
+
+# --- Documentation ---
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    mdpv - POSIX Markdown Previewer
+
+SYNOPSIS
+    mdpv [-d|-l] [-t] [-n] [-e] [-w] <file.md | directory>
+
+DESCRIPTION
+    Compiles Markdown files to standalone HTML using pandoc(1) and opens 
+    them in the default system browser. Applies an internal CSS theme based 
+    on the time of day unless explicitly overridden.
+
+OPTIONS
+    -d      Force dark mode palette.
+    -l      Force light mode palette.
+    -t      Generate Table of Contents (TOC).
+    -n      Number section headings.
+    -e      Embed resources (Base64 encode images).
+    -w      Watch mode. Recompiles on save (requires 'entr').
+    -h      Show this manual and exit.
+
+EXIT STATUS
+    0   Success.
+    1   Missing dependencies, invalid input, or compilation failure.
+EOF
+    exit 0
+fi
+# ---------------------
+
 die() { printf 'mdpv: %s\n' "$1" >&2; exit 1; }
 
-usage() {
-    printf "Usage: mdpv [-d|-l] [-t] [-n] [-e] [-w] [-h] <file.md | directory>\n\n"
-    printf "Options:\n"
-    printf "  -d    Force dark mode\n"
-    printf "  -l    Force light mode\n"
-    printf "  -t    Generate Table of Contents (TOC)\n"
-    printf "  -n    Number sections\n"
-    printf "  -e    Embed resources (Base64 encode images)\n"
-    printf "  -w    Watch mode (requires 'entr' utility)\n"
-    printf "  -h    Show help\n"
-    exit 0
-}
+# Dependency Validation
+for req in pandoc; do
+    if ! command -v "$req" >/dev/null 2>&1; then
+        die "Required dependency '$req' is missing."
+    fi
+done
 
 open_window() {
-    if [ -n "$BROWSER" ]; then
-        "$BROWSER" --new-window "$1" >/dev/null 2>&1 &
-    else
+    if [ -n "${BROWSER:-}" ]; then
+        "$BROWSER" "$1" >/dev/null 2>&1 &
+    elif command -v xdg-open >/dev/null 2>&1; then
         xdg-open "$1" >/dev/null 2>&1 &
+    else
+        die "No browser or xdg-open found."
     fi
 }
 
@@ -28,7 +58,7 @@ THEME="auto"
 P_TOC=""
 P_NUM=""
 P_EMBED=""
-P_WATCH=""
+P_WATCH=0
 
 while getopts "dlhtnew" opt; do
     case "$opt" in
@@ -37,17 +67,24 @@ while getopts "dlhtnew" opt; do
         t) P_TOC="--toc" ;;
         n) P_NUM="--number-sections" ;;
         e) P_EMBED="--embed-resources" ;;
-        w) P_WATCH="1" ;;
-        h) usage ;;
-        \?) usage ;;
+        w) P_WATCH=1 ;;
+        h|*) die "Use 'mdpv -h' for usage instructions." ;;
     esac
 done
 shift $((OPTIND - 1))
 
-[ $# -eq 0 ] && usage
+[ $# -eq 0 ] && die "No input file or directory specified."
 
+# Watch Mode Dependency Check
+if [ "$P_WATCH" -eq 1 ] && ! command -v entr >/dev/null 2>&1; then
+    die "Watch mode (-w) requires the 'entr' utility."
+fi
+
+# Time-based theme resolution
 if [ "$THEME" = "auto" ]; then
     HOUR=$(date +%H)
+    HOUR=$(expr "$HOUR" + 0)
+    
     if [ "$HOUR" -ge 6 ] && [ "$HOUR" -lt 20 ]; then
         THEME="light"
     else
@@ -61,11 +98,11 @@ else
     VARS='--bg:#000000;--surface:#0a0a0a;--border:#222222;--text:#d1d5db;--muted:#808080;--accent:#58a6ff;--head:#ffffff;--code-bg:#0a0a0a;--code-fg:#e5e7eb;--mark:#4d4d00;--hr:#222222'
 fi
 
-# 1. Isolated memory allocation
+# Isolated memory allocation
 TMP_DIR="/tmp/mdpv"
 mkdir -p "$TMP_DIR"
 
-STYLE_FILE=$(mktemp "$TMP_DIR/style.XXXXXX.css") || die "Memory allocation failed"
+STYLE_FILE="$TMP_DIR/style.$$.css"
 
 cat > "$STYLE_FILE" << CSS
 <style>
@@ -77,7 +114,7 @@ h1,h2,h3,h4,h5,h6{font-family:Georgia,serif;font-weight:600;color:var(--head);li
 h1{font-size:1.9rem;padding-bottom:.3em;border-bottom:1px solid var(--border)}
 h2{font-size:1.45rem;padding-bottom:.2em;border-bottom:1px solid var(--border)}
 h3{font-size:1.15rem}h4{font-size:1rem}p{margin:.75em 0}
-a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+a,a:visited{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 hr{border:none;border-top:1px solid var(--hr);margin:2rem 0}
 blockquote{margin:1rem 0;padding:.4em 1em;border-left:4px solid var(--border);color:var(--muted);font-style:italic}
 blockquote p{margin:0}
@@ -104,12 +141,15 @@ CSS
 compile_and_open() {
     local_file="$1"
     TITLE=$(basename "$local_file" .md)
+    # Using 'date +%s' to avoid naming collisions if multiple files have the same name
     out="$TMP_DIR/${TITLE}_$(date +%s).html"
     
+    # shellcheck disable=SC2086
     pandoc "$local_file" -s --mathml $P_TOC $P_NUM $P_EMBED --metadata title="$TITLE" -H "$STYLE_FILE" -o "$out"
     open_window "$out"
     
-    if [ -n "$P_WATCH" ]; then
+    if [ "$P_WATCH" -eq 1 ]; then
+        # shellcheck disable=SC2086
         printf "%s\n" "$local_file" | entr -n -p pandoc "$local_file" -s --mathml $P_TOC $P_NUM $P_EMBED --metadata title="$TITLE" -H "$STYLE_FILE" -o "$out" >/dev/null 2>&1 &
     fi
 }
@@ -126,5 +166,5 @@ for arg in "$@"; do
     fi
 done
 
+# Unified Async Cleanup: Deletes both old HTML files and old style files
 find "$TMP_DIR" -type f -mmin +10 -exec rm -f {} + >/dev/null 2>&1 &
-[ -z "$P_WATCH" ] && (sleep 5 && rm -f "$STYLE_FILE") &

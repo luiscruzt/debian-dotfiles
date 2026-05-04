@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# bfish - interactive interface for translate-shell
+
+set -euo pipefail
+
+# --- Documentation ---
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+NAME
+    bfish - context-aware interactive interface for translate-shell
+
+SYNOPSIS
+    bfish [OPTIONS] [TARGET_LANG] [TEXT...]
+    echo "text" | bfish [OPTIONS] [TARGET_LANG]
+
+OPTIONS
+    -d         Dictionary Mode. Displays full definitions.
+    -p         Play audio. Pronounces the translation via system TTS.
+    -s <lang>  Source language override (e.g., -s fr). 
+    -w         Continuous Window Mode. Prompts for text repeatedly until an 
+               empty line is given. (Ideal for Window Manager keybinds).
+    -h         Show this manual and exit.
+
+EXAMPLES
+    WM Keybind (Executes continuous loop in a floating terminal):
+        $ st -e bfish -w
+    
+    Direct Execution (Single-shot):
+        $ bfish es "This is a test."
+    
+    Pipeline:
+        $ echo "Hello" | bfish fr > output.txt
+
+DEPENDENCIES
+    Required: translate-shell, fzf
+
+EXIT STATUS
+    0   Success.
+    1   Missing dependencies or invalid options.
+EOF
+    exit 0
+fi
+# ---------------------
+
+# Dependency Validation
+for req in trans fzf; do
+    if ! command -v "$req" >/dev/null 2>&1; then
+        printf "Error: Required dependency '%s' missing.\n" "$req" >&2
+        exit 1
+    fi
+done
+
+# Environment Setup
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/bfish"
+LOG_FILE="$LOG_DIR/history.tsv"
+mkdir -p "$LOG_DIR"
+
+declare -A LANG_MAP=(
+    ["Spanish"]="es"
+    ["English"]="en"
+    ["French"]="fr"
+    ["German"]="de"
+    ["Portuguese"]="pt"
+    ["Italian"]="it"
+    ["Japanese"]="ja"
+    ["Chinese (Simplified)"]="zh-CN"
+    ["Russian"]="ru"
+    ["Arabic"]="ar"
+    ["Korean"]="ko"
+)
+
+# Option Parsing
+OPT_BRIEF="-b"
+OPT_PLAY=""
+OPT_WAIT=""
+SOURCE_CODE=""
+
+while getopts "dpws:" opt; do
+    case "$opt" in
+        d) OPT_BRIEF="" ;;
+        p) OPT_PLAY="-p" ;;
+        w) OPT_WAIT="1" ;;
+        s) SOURCE_CODE="$OPTARG" ;;
+        \?) exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+prompt_choice() {
+    local prompt_text="$1"
+    local choices="$2"
+    printf "%s\n" "$choices" | fzf --prompt="$prompt_text " --height=100% --layout=reverse --print-query | tail -n 1
+}
+
+# Input Routing
+TARGET_CODE=""
+TEXT_TO_TRANSLATE=""
+
+if [[ ! -t 0 ]] || [[ -p /dev/stdin ]] || [[ -f /dev/stdin ]]; then
+    TEXT_TO_TRANSLATE=$(cat)
+    
+    if [[ $# -ge 1 ]]; then
+        TARGET_CODE="$1"
+    else
+        lang_names=$(printf "%s\n" "${!LANG_MAP[@]}")
+        sel_lang=$(prompt_choice "Translate to:" "$lang_names")
+        [[ -z "$sel_lang" ]] && exit 0
+        TARGET_CODE="${LANG_MAP[$sel_lang]:-$sel_lang}"
+    fi
+else
+    if [[ $# -ge 2 ]]; then
+        TARGET_CODE="$1"
+        shift
+        TEXT_TO_TRANSLATE="$*"
+    elif [[ $# -eq 1 ]]; then
+        TARGET_CODE="$1"
+    else
+        lang_names=$(printf "%s\n" "${!LANG_MAP[@]}")
+        sel_lang=$(prompt_choice "Translate to:" "$lang_names")
+        [[ -z "$sel_lang" ]] && exit 0
+        TARGET_CODE="${LANG_MAP[$sel_lang]:-$sel_lang}"
+    fi
+fi
+
+execute_translation() {
+    local text="$1"
+    printf "\nTranslating...\n"
+
+    local trans_args=()
+    [[ -n "$OPT_BRIEF" ]] && trans_args+=("-b")
+    [[ -n "$OPT_PLAY" ]] && trans_args+=("-p")
+
+    local lang_mapping=":${TARGET_CODE}"
+    [[ -n "$SOURCE_CODE" ]] && lang_mapping="${SOURCE_CODE}:${TARGET_CODE}"
+
+    trans_args+=("$lang_mapping")
+
+    # shellcheck disable=SC2086
+    local result
+    result=$(trans "${trans_args[@]}" "$text")
+
+    printf "\n%s\n\n" "$result"
+
+    local raw_text="$result"
+    if [[ -z "$OPT_BRIEF" ]]; then
+        local raw_args=("-b" "$lang_mapping")
+        raw_text=$(trans "${raw_args[@]}" "$text")
+    fi
+
+    printf "%s\t%s\t%s\t%s\n" "$(date +'%Y-%m-%d %H:%M:%S')" "$text" "$TARGET_CODE" "$raw_text" >> "$LOG_FILE"
+}
+
+
+if [[ -n "$OPT_WAIT" ]]; then
+    while true; do
+        if [[ -z "$TEXT_TO_TRANSLATE" ]]; then
+            printf "Text to translate (Enter to exit):\n> "
+            if ! read -r TEXT_TO_TRANSLATE </dev/tty || [[ -z "$TEXT_TO_TRANSLATE" ]]; then
+                break
+            fi
+        fi
+        
+        execute_translation "$TEXT_TO_TRANSLATE"
+        
+        # Reset variable and add spacing for the next loop iteration
+        TEXT_TO_TRANSLATE=""
+        printf "\n"
+    done
+else
+    if [[ -z "$TEXT_TO_TRANSLATE" ]]; then
+        printf "Text to translate:\n> "
+        if ! read -r TEXT_TO_TRANSLATE </dev/tty || [[ -z "$TEXT_TO_TRANSLATE" ]]; then
+            exit 0
+        fi
+    fi
+    
+    execute_translation "$TEXT_TO_TRANSLATE"
+fi

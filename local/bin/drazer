@@ -1,8 +1,51 @@
 #!/bin/sh
-# POSIX dmenu interface for razer-cli
+# drazer: Floating fzf interface for razer-cli
 
-DMENU="dmenu -i -l 20 -p"
+set -eu
 
+# --- Documentation ---
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    drazer - interactive interface for razer-cli
+
+SYNOPSIS
+    drazer [EFFECT] [COLOR]
+
+DESCRIPTION
+    Provides a terminal-based interface to manage Razer peripheral lighting 
+    using fzf(1). If launched outside of a terminal (e.g., via an i3 keybind), 
+    drazer automatically wraps itself in a floating terminal instance.
+
+    Custom Colors:
+    If a custom hex code (e.g., FF0055) is typed into the color prompt instead 
+    of selecting a predefined option, it is passed directly to the daemon.
+
+EXIT STATUS
+    0   Success or user cancellation.
+    1   Missing dependencies.
+EOF
+    exit 0
+fi
+# ---------------------
+
+# TTY Wrapper
+# If not running in a terminal, spawn a floating st instance and re-execute.
+if [ ! -t 0 ]; then
+    exec st -c "drazer_float" -e "$0" "$@"
+fi
+
+# Dependency Validation
+for req in razer-cli fzf; do
+    if ! command -v "$req" >/dev/null 2>&1; then
+        printf "Error: Required dependency '%s' is missing.\n" "$req" >&2
+        printf "Press Enter to exit...\n"
+        read -r _
+        exit 1
+    fi
+done
+
+# Data Maps
 EFFECTS="Static:static
 Spectrum Cycling:spectrum
 Breathing Single:breath_single
@@ -43,19 +86,41 @@ Matrix Green:00FF41
 Crimson:DC143C
 Gold:FFD700"
 
-sel_effect=$(printf "%b" "$EFFECTS" | cut -d':' -f1 | $DMENU "Effect:")
+# Prompt Abstraction
+prompt_user() {
+    prompt_text="$1"
+    choices="$2"
+    # fzf set to 100% height to seamlessly fill the floating terminal window
+    printf "%s\n" "$choices" | fzf --prompt="$prompt_text " --height=100% --layout=reverse --print-query | tail -n 1
+}
+
+# Input Routing
+if [ $# -ge 1 ]; then
+    sel_effect="$1"
+    sel_color="${2:-}"
+else
+    effect_names=$(printf "%s\n" "$EFFECTS" | cut -d':' -f1)
+    sel_effect=$(prompt_user "Effect:" "$effect_names")
+fi
+
 [ -z "$sel_effect" ] && exit 0
 
-effect=$(printf "%b" "$EFFECTS" | awk -F':' -v target="$sel_effect" '$1 == target {print $2}')
+# Parse the effect dictionary
+effect=$(printf "%s\n" "$EFFECTS" | awk -F':' -v target="$sel_effect" '$1 == target {print $2}')
 [ -z "$effect" ] && effect="$sel_effect"
 
+# Color Routing
 case "$effect" in
     static|breath_single|breath_dual|breath_triple|reactive|ripple|starlight_single|starlight_dual|multicolor)
         
-        sel_color=$(printf "%b" "$COLORS" | cut -d':' -f1 | $DMENU "Color:")
+        if [ -z "${sel_color:-}" ]; then
+            color_names=$(printf "%s\n" "$COLORS" | cut -d':' -f1)
+            sel_color=$(prompt_user "Color:" "$color_names")
+        fi
+        
         [ -z "$sel_color" ] && exit 0
         
-        color=$(printf "%b" "$COLORS" | awk -F':' -v target="$sel_color" '$1 == target {print $2}')
+        color=$(printf "%s\n" "$COLORS" | awk -F':' -v target="$sel_color" '$1 == target {print $2}')
         [ -z "$color" ] && color="$sel_color"
 
         exec razer-cli -e "$effect" -c "$color" -z all

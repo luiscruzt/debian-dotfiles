@@ -1,0 +1,90 @@
+#!/bin/sh
+# dqalc - interactive menu wrapper for Qalculate!
+
+set -eu
+
+# --- Documentation ---
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    dqalc - menu-driven interface for the Qalculate! engine
+
+SYNOPSIS
+    dqalc [OPTIONS]
+
+DESCRIPTION
+    A minimalist POSIX shell wrapper that prompts the user for a mathematical
+    expression via a dynamic menu (defaulting to dmenu). The expression is
+    evaluated by Qalculate!, the result is copied to the system clipboard,
+    and a desktop notification is dispatched. 
+
+    Failed evaluations trigger a critical desktop notification instead of
+    terminating silently.
+
+OPTIONS
+    -h, --help    Show this manual and exit.
+
+ENVIRONMENT
+    DQALC_MENU    Override the default menu launcher. 
+                  Example: env DQALC_MENU="rofi -dmenu -p Calc" dqalc
+
+DEPENDENCIES
+    Required: qalc, dmenu (or alternative), notify-send
+    Optional: wl-copy (Wayland), xclip (X11), or xsel (X11)
+
+FILES
+    $XDG_STATE_HOME/dqalc/history.tsv
+    Appends all successful calculations in Tab-Separated Values format.
+
+EXIT STATUS
+    Returns zero on success or user cancellation.
+    Returns non-zero on missing dependencies or invalid mathematical syntax.
+EOF
+    exit 0
+fi
+# ---------------------
+
+# Validate essential notification dependency
+if ! command -v notify-send >/dev/null 2>&1; then
+    echo "Error: dqalc requires libnotify (notify-send)" >&2
+    exit 1
+fi
+
+# Determine menu command via environment variable fallback
+MENU_CMD="${DQALC_MENU:-dmenu -p Qalc:}"
+
+# Prompt user for input expression
+expr=$(eval "$MENU_CMD" < /dev/null)
+[ -z "$expr" ] && exit 0
+
+# Detect active clipboard engine
+if command -v wl-copy >/dev/null 2>&1; then
+    copy_bin="wl-copy"
+elif command -v xclip >/dev/null 2>&1; then
+    copy_bin="xclip -selection clipboard"
+elif command -v xsel >/dev/null 2>&1; then
+    copy_bin="xsel -b -i"
+else
+    notify-send -u critical "dqalc error" "No clipboard utility installed."
+    exit 1
+fi
+
+# Execute calculation and handle state
+if res=$(qalc -t "$expr" 2>/dev/null) && [ -n "$res" ]; then
+    
+    # Inject result into clipboard without trailing newlines
+    printf "%s" "$res" | $copy_bin
+    
+    # Dispatch success notification
+    notify-send -u normal "dqalc" "$expr = $res"
+    
+    # Append to XDG-compliant history log
+    LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dqalc"
+    mkdir -p "$LOG_DIR"
+    printf "%s\t%s\t%s\n" "$(date +'%Y-%m-%d %H:%M:%S')" "$expr" "$res" >> "$LOG_DIR/history.tsv"
+
+else
+    # Dispatch failure notification for syntax errors
+    notify-send -u critical "dqalc error" "Invalid expression: $expr"
+    exit 1
+fi

@@ -1,0 +1,46 @@
+#!/bin/sh
+# toggle-opacity: Toggles the focused window's opacity between 100% and a target value.
+
+set -e
+
+# --- Documentation ---
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    toggle-opacity - toggle window transparency via picom
+
+SYNOPSIS
+    toggle-opacity [OPACITY]
+
+DESCRIPTION
+    Queries the currently focused X11 window using picom-trans(1).
+    If the window is fully opaque (100%), it reduces the opacity to the target 
+    OPACITY. If the window is already transparent, it restores it to 100%.
+
+OPERANDS
+    OPACITY
+            The target transparency percentage (1-99). Default: 80.
+
+EXIT STATUS
+    0   Success.
+    1   Dependency failure or unable to query window.
+EOF
+    exit 0
+fi
+# ---------------------
+
+target_opacity="${1:-80}"
+
+if ! command -v picom-trans >/dev/null 2>&1; then
+    echo "Error: picom-trans dependency not found." >&2
+    exit 1
+fi
+
+current_opacity=$(picom-trans -c -g 2>/dev/null)
+[ -z "$current_opacity" ] && exit 1
+
+if [ "$current_opacity" -eq 100 ]; then
+    picom-trans -c "$target_opacity" >/dev/null
+else
+    picom-trans -c 100 >/dev/null
+fi

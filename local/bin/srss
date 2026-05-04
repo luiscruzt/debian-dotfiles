@@ -1,0 +1,18 @@
+#!/bin/sh
+# srss
+# Dependencies: curl, sfeed, dmenu, awk
+
+FEED_URL="https://export.arxiv.org/rss/math.MP"
+
+# Fetch, parse, and format the feed into: "Title | URL"
+# sfeed column 4 is Title, column 3 is Link.
+SELECTION=$(curl -s "$FEED_URL" | \
+            sfeed | \
+            awk -F'\t' '{printf "%s | %s\n", $4, $3}' | \
+            dmenu -i -l 20 -p "arXiv Math-Phys:")
+
+# Extract the URL and execute the browser in a detached state
+if [ -n "$SELECTION" ]; then
+    URL=$(echo "$SELECTION" | awk -F' \\| ' '{print $NF}')
+    exec librewolf --private-window "$URL"
+fi

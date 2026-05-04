@@ -1,0 +1,122 @@
+#!/usr/bin/env zsh
+# smusic: Interactive fuzzy music player and playlist orchestrator.
+
+# --- Documentation ---
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+NAME
+    smusic - interactive fuzzy music player
+
+SYNOPSIS
+    smusic
+
+DESCRIPTION
+    smusic provides a TTY-driven interactive interface to search, select, and play 
+    audio files. It dynamically enumerates directories and files using fd(1) and 
+    filters them via fzf(1). Selected entities are expanded, deduplicated, and 
+    serialized into a TOML playlist for playback via cliamp.
+
+    If executed outside of a terminal environment (e.g., via a window manager 
+    keybind), smusic will automatically wrap itself in a new kitty(1) instance.
+
+ENVIRONMENT
+    MUSIC   Base directory for audio files. 
+            (Default: /media/luiscruz/Toshiba/Hi-Fi Music)
+
+KEYBINDINGS
+    TAB         Toggle selection for multiple files/directories.
+    ENTER       Generate cliamp playlist and execute cliamp.
+    CTRL-O      Export selection to a temporary m3u and launch detached mpv.
+    CTRL-S      Launch splay on the parent directory of the highlighted item.
+    CTRL-U/D    Scroll preview window by half-pages.
+    SHIFT-UP/DN Scroll preview window line-by-line.
+
+EXIT STATUS
+    0   Success or user cancellation.
+    1   Dependency failure or invalid music directory.
+EOF
+    exit 0
+fi
+# ---------------------
+
+# TTY Wrapper: Dynamically resolve script path to avoid hardcoding ~/.local/bin
+if [[ ! -t 0 ]]; then
+    exec kitty --class smusic_player "$(realpath "$0")" "$@"
+fi
+
+# Initialization
+fd_bin=$(command -v fdfind || command -v fd) || true
+eza_bin=$(command -v eza || command -v exa || command -v ls) || true
+
+music_dir="${MUSIC:-/media/luiscruz/Toshiba/Hi-Fi Music}"
+playlist_dir="$HOME/.config/cliamp/playlists"
+toml_file="$playlist_dir/smusic_temp.toml"
+
+if [[ ! -d "$music_dir" ]]; then
+    echo "Error: MUSIC directory not found at $music_dir" >&2
+    exit 1
+fi
+
+mkdir -p "$playlist_dir"
+cd "$music_dir" || exit 1
+
+# Pipeline
+selected=$({
+    "$fd_bin" --type directory --color=never .
+    "$fd_bin" --type file --color=never \
+        -e flac -e mp3 -e m4a -e opus -e ogg -e wav .
+} 2>/dev/null | sort | fzf --multi --layout=reverse \
+    --prompt "smusic > " \
+    --header "TAB: Select | ENTER: cliamp | C-o: mpv | C-s: splay" \
+    --preview "if [ -d {} ]; then $eza_bin -1 --icons --tree --level=2 --color=always {} 2>/dev/null; else $eza_bin -1 --icons --color=always {} 2>/dev/null; fi" \
+    --preview-window "right:45%:border-left" \
+    --bind "home:first,end:last,ctrl-u:half-page-up,ctrl-d:half-page-down" \
+    --bind "shift-up:preview-up,shift-down:preview-down" \
+    --bind "ctrl-o:execute-silent(awk -v d=\"$PWD\" '{print d\"/\"\$0}' {+f} > /tmp/sm_mpv.m3u && setsid mpv --playlist=/tmp/sm_mpv.m3u >/dev/null 2>&1 &)+deselect-all" \
+    --bind "ctrl-s:execute-silent(d=\$(realpath {}); [ -f \"\$d\" ] && d=\$(dirname \"\$d\"); setsid splay \"\$d\" >/dev/null 2>&1 &)+deselect-all")
+
+[[ -z "$selected" ]] && exit 0
+
+# Expansion
+local -a audio_files
+while IFS= read -r item; do
+    if [[ -d "$item" ]]; then
+        while IFS= read -r file; do
+            audio_files+=("$music_dir/$file")
+        done < <("$fd_bin" --type file \
+            -e flac -e mp3 -e m4a -e opus -e ogg -e wav \
+            . "$item" | sort)
+    elif [[ -f "$item" ]]; then
+        audio_files+=("$music_dir/$item")
+    fi
+done <<< "$selected"
+
+# Deduplication
+local -a final_files
+while IFS= read -r line; do
+    [[ -n "$line" ]] && final_files+=("$line")
+done < <(printf "%s\n" "${audio_files[@]}" | awk '!a[$0]++')
+
+if [[ ${#final_files[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+# Serialization
+echo 'name = "smusic_temp"' > "$toml_file"
+for file in "${final_files[@]}"; do
+    echo '[[track]]' >> "$toml_file"
+    echo "path = \"$file\"" >> "$toml_file"
+    
+    # Native Zsh parameter expansion
+    track_title="${file:t:r}"
+    echo "title = \"$track_title\"" >> "$toml_file"
+done
+
+# Handoff
+if ! command -v cliamp >/dev/null 2>&1; then
+    echo "Error: cliamp executable not found in PATH." >&2
+    read -q "?Press any key to exit..."
+    exit 1
+fi
+
+exec cliamp --playlist "smusic_temp" --auto-play

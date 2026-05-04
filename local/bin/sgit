@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# sgit - Simple Git Automator
+
+set -euo pipefail
+
+# --- UNIX Documentation ---
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+NAME
+    sgit - Dead-simple Git automator for rapid commits and pushes
+
+SYNOPSIS
+    sgit [OPTIONS]
+
+DESCRIPTION
+    sgit drastically streamlines the process of staging, committing, and pushing code. 
+    
+    If executed in an uninitialized directory, it prompts to initialize a new git 
+    repository, makes the initial commit, and configures the GitHub remote. 
+    
+    If executed in an existing repository, it stages all changes, commits them, 
+    and pushes to the upstream branch. If no commit message is provided, it 
+    automatically generates a message based on your file diffs.
+
+OPTIONS
+    -m <msg>    Specify a custom commit message. If omitted, sgit will read
+                your differential statistics (e.g., "Sync: 2 files changed...").
+    -p <path>   Override the default target directory and execute sgit in the 
+                specified path instead of the current working directory.
+    -h, --help  Show this manual and exit.
+
+EXAMPLES
+    sgit
+        Auto-commit the current directory using diff statistics and push.
+
+    sgit -m "Fix database connection leak"
+        Commit current directory with a specific message and push.
+
+    sgit -p ~/repos/myrepo
+        Initialize/commit/push a remote folder
+EOF
+    exit 0
+fi
+# --------------------------
+
+# Variables
+TARGET_DIR="$PWD"
+COMMIT_MSG=""
+
+# Parse flags
+while getopts "m:p:" opt; do
+    case "$opt" in
+        m) COMMIT_MSG="$OPTARG" ;;
+        p) TARGET_DIR="$(realpath "$OPTARG")" ;;
+        \?) exit 1 ;;
+    esac
+done
+
+# Navigate to target directory
+cd "$TARGET_DIR" || { echo "Error: Directory not found."; exit 1; }
+
+# ---------------------------------------------------------
+# CASE 1: NOT A GIT REPOSITORY
+# ---------------------------------------------------------
+if [[ ! -d .git ]]; then
+    echo "Directory '$(basename "$TARGET_DIR")' is not a Git repository."
+    read -r -p "Initialize and upload it now? [y/N]: " ans
+    
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        git init
+        
+        # Add everything and make the first commit
+        git add .
+        git commit -m "Initial commit"
+        
+        # Ask for the remote URL to push to GitHub
+        echo ""
+        read -r -p "Enter GitHub Remote URL (leave blank to skip pushing): " remote_url
+        
+        if [[ -n "$remote_url" ]]; then
+            git remote add origin "$remote_url"
+            BRANCH=$(git rev-parse --abbrev-ref HEAD)
+            echo "Pushing to remote..."
+            git push -u origin "$BRANCH"
+        fi
+        
+        echo "Done!"
+        exit 0
+    else
+        echo "Aborted."
+        exit 0
+    fi
+fi
+
+# ---------------------------------------------------------
+# CASE 2: EXISTING GIT REPOSITORY
+# ---------------------------------------------------------
+
+# Check if there are actually changes to push
+if [[ -z "$(git status --porcelain)" ]]; then
+    echo "Working tree clean. Nothing to commit or push."
+    exit 0
+fi
+
+echo "Adding changes..."
+git add .
+
+# Determine commit message dynamically if one was not provided
+if [[ -z "$COMMIT_MSG" ]]; then
+    STATS=$(git diff --cached --shortstat 2>/dev/null | xargs)
+    [[ -z "$STATS" ]] && STATS="Minor structural updates"
+    
+    COMMIT_MSG="Sync: $STATS"
+fi
+
+echo "Committing: $COMMIT_MSG"
+git commit -m "$COMMIT_MSG"
+
+echo "Pushing to remote..."
+# Check if an upstream tracking branch exists. If not, push and set upstream.
+if ! git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
+    BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    git push -u origin "$BRANCH"
+else
+    git push
+fi
+
+echo "Done!"

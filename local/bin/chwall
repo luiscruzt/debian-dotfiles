@@ -1,7 +1,5 @@
-#!//bin/sh
-# Select a wallpaper visually using nsxiv and set it with feh
-WALLPAPERS="${HOME}/Pictures/Wallpapers"
+#!/bin/sh
 
-SELECTED=$(nsxiv -t -r -o "$WALLPAPERS")
-[ -z "$SELECTED" ] && exit 0
-feh --bg-fill "$SELECTED"
+wall_dir="${HOME}/Pictures/Wallpapers"
+
+nsxiv -t -r "$wall_dir"

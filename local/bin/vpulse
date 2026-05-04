@@ -32,4 +32,3 @@ case "$1" in
         ;;
 esac
 
-pkill -RTMIN+10 i3blocks

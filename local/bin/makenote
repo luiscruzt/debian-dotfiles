@@ -1,21 +1,88 @@
-#!/bin/sh
-# makenote: Fast LaTeX note instantiation
+#!/usr/bin/env bash
+# makenote - Fast, modular note instantiation environment
 
-VAULT="$HOME/mytex"
-[ ! -d "$VAULT" ] && mkdir -p "$VAULT"
+set -euo pipefail
 
-# Prompt for subject
-SUBJ=$(find "$VAULT" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | dmenu -i -p "Subject:" < /dev/null)
-[ $? -ne 0 ] && exit 1
-[ -z "$SUBJ" ] && SUBJ="general"
+# --- Documentation ---
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+NAME
+    makenote - modular instantiation for LaTeX, Typst, Markdown, and plaintext
 
-# Prompt for topic
-TOPIC=$(dmenu -p "Topic (Optional):" < /dev/null)
-[ $? -ne 0 ] && exit 1
+SYNOPSIS
+    makenote [OPTIONS]
 
+DESCRIPTION
+    An interactive, fzf-driven script to rapidly scaffold notes. It handles 
+    directory management, template injection, and automatically orchestrates 
+    background compilation daemons (latexmk, typst watch) and PDF viewers.
+
+OPTIONS
+    -t <type>   Specify format: 'tex' (default), 'typ', 'md', or 'txt'.
+    -h          Show this manual and exit.
+
+ENVIRONMENT
+    MAKENOTE_VAULT   Root directory for notes (Default: ~/mytex).
+    EDITOR           Text editor to launch (Default: nvim).
+    READER           PDF viewer to launch (Default: sioyek).
+
+DEPENDENCIES
+    Required: fzf, an editor ($EDITOR)
+    Optional: latexmk (for tex), typst (for typ), sioyek/zathura (for PDF viewing)
+EOF
+    exit 0
+fi
+# ---------------------
+
+# Option Parsing & Defaults
+FILETYPE="tex"
+while getopts "ht:" opt; do
+    case "$opt" in
+        t) FILETYPE="$OPTARG" ;;
+        \?) exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+if [[ ! "$FILETYPE" =~ ^(tex|typ|md|txt)$ ]]; then
+    printf "Error: Unsupported filetype '%s'. Use tex, typ, md, or txt.\n" "$FILETYPE" >&2
+    exit 1
+fi
+
+#  Window Manager TTY Wrapper
+if [[ ! -t 0 ]] && [[ -z "${MAKENOTE_FLOAT:-}" ]]; then
+    exec env MAKENOTE_FLOAT=1 st -c "makenote_float" -e "$0" "$@"
+fi
+
+# Environment & Variables
+VAULT="${MAKENOTE_VAULT:-$HOME/mytex}"
+TEXT_EDITOR="${EDITOR:-nvim}"
+PDF_VIEWER="${READER:-sioyek}"
+mkdir -p "$VAULT"
+
+# Dependency Validation
+for req in "$TEXT_EDITOR" fzf; do
+    if ! command -v "$req" >/dev/null 2>&1; then
+        printf "Error: Required dependency '%s' missing.\n" "$req" >&2
+        [[ -n "${MAKENOTE_FLOAT:-}" ]] && read -r _ < /dev/tty
+        exit 1
+    fi
+done
+
+# Interactive UI (fzf with Recency Sorting)
+SUBJECTS=$(ls -1t "$VAULT" 2>/dev/null || true)
+SUBJ=$(printf "general\n%s" "$SUBJECTS" | awk '!seen[$0]++' | fzf --prompt="Subject: " --print-query --height=100% --layout=reverse | tail -n 1)
+
+[[ -z "$SUBJ" ]] && exit 0
+
+printf "Topic (Optional):\n> "
+read -r TOPIC < /dev/tty
+
+# String Sanitization
 TIMESTAMP=$(date +'%Y%m%d_%H%M')
+DATE_HUMAN=$(date +'%Y-%m-%d')
 
-if [ -n "$TOPIC" ]; then
+if [[ -n "$TOPIC" ]]; then
     TOPIC_SANITIZED=$(printf "%s" "$TOPIC" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | tr -s '-' | sed 's/^-//;s/-$//')
     TITLE_CLEAN=$(printf "%s" "$TOPIC" | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
     FILENAME="${TIMESTAMP}_${TOPIC_SANITIZED}"
@@ -24,24 +91,26 @@ else
     FILENAME="${TIMESTAMP}"
 fi
 
-# Setup directory structure
 DIR="$VAULT/$SUBJ"
-mkdir -p "$DIR/figures"
+mkdir -p "$DIR"
+FILEPATH="$DIR/$FILENAME.$FILETYPE"
 
-FILEPATH="$DIR/$FILENAME.tex"
-[ -f "$FILEPATH" ] && exit 1
+if [[ -f "$FILEPATH" ]]; then
+    printf "Error: File %s already exists.\n" "$FILEPATH" >&2
+    [[ -n "${MAKENOTE_FLOAT:-}" ]] && read -r _ < /dev/tty
+    exit 1
+fi
 
-# Inject LaTeX template
-cat << EOF > "$FILEPATH"
+# Modular Template Injection
+case "$FILETYPE" in
+    tex)
+        mkdir -p "$DIR/figures"
+        cat << EOF > "$FILEPATH"
 \documentclass[11pt, a4paper]{article}
-
-% Core packages
 \usepackage{amsmath, amssymb, amsfonts, amsthm}
 \usepackage{graphicx}
 \usepackage{hyperref}
 \usepackage[margin=1in]{geometry}
-
-% Assets path
 \graphicspath{{./figures/}}
 
 \title{$TITLE_CLEAN}
@@ -51,34 +120,73 @@ cat << EOF > "$FILEPATH"
 \begin{document}
 \maketitle
 
-% Content
-
 \end{document}
 EOF
+        ;;
+    typ)
+        mkdir -p "$DIR/figures"
+        cat << EOF > "$FILEPATH"
+#set document(title: "$TITLE_CLEAN")
+#set page(paper: "a4", margin: 1in)
+#set text(font: "Linux Libertine", size: 11pt)
 
-# Compile and open
+= $TITLE_CLEAN
+
+EOF
+        ;;
+    md)
+        cat << EOF > "$FILEPATH"
+---
+title: "$TITLE_CLEAN"
+date: $DATE_HUMAN
+subject: "$SUBJ"
+---
+
+# $TITLE_CLEAN
+
+EOF
+        ;;
+    txt)
+        cat << EOF > "$FILEPATH"
+$TITLE_CLEAN
+Subject: $SUBJ | Date: $DATE_HUMAN
+----------------------------------------
+
+EOF
+        ;;
+esac
+
+# Process Orchestration & Traps
+COMPILER_PID=""
+
+cleanup() {
+    if [[ -n "$COMPILER_PID" ]]; then
+        kill "$COMPILER_PID" >/dev/null 2>&1 || true
+    fi
+    if [[ "$FILETYPE" == "tex" ]]; then
+        rm -f "$DIR"/*.{aux,log,fls,fdb_latexmk,synctex.gz,out} 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+# Compilation Engine
 cd "$DIR" || exit 1
 
-latexmk -pdf -pvc -view=none -interaction=nonstopmode -halt-on-error "$FILENAME.tex" >/dev/null 2>&1 &
-COMPILER_PID=$!
-
-# Wait briefly for the first PDF compilation pass before launching sioyek
-while [ ! -f "$FILENAME.pdf" ]; do
-    sleep 0.1
-done
-
-if command -v sioyek >/dev/null 2>&1; then
-    sioyek "$FILENAME.pdf" >/dev/null 2>&1 &
+if [[ "$FILETYPE" == "tex" ]] && command -v latexmk >/dev/null 2>&1; then
+    latexmk -pdf -pvc -view=none -interaction=nonstopmode -halt-on-error "$FILENAME.tex" >/dev/null 2>&1 &
+    COMPILER_PID=$!
+elif [[ "$FILETYPE" == "typ" ]] && command -v typst >/dev/null 2>&1; then
+    typst watch "$FILENAME.typ" "$FILENAME.pdf" >/dev/null 2>&1 &
+    COMPILER_PID=$!
 fi
 
-# Editor execution block (blocks script until nvim is closed)
-if [ -t 0 ]; then
-    nvim "$FILENAME.tex"
-    exec "${SHELL:-/bin/sh}"
-else
-    kitty --directory "$DIR" sh -c "nvim $FILENAME.tex"
+# PDF Viewer Trigger
+if [[ -n "$COMPILER_PID" ]]; then
+    while [[ ! -f "$FILENAME.pdf" ]]; do sleep 0.1; done
+    if command -v "$PDF_VIEWER" >/dev/null 2>&1; then
+        "$PDF_VIEWER" "$FILENAME.pdf" >/dev/null 2>&1 &
+    fi
 fi
 
-# Cleanup routine (executes after exiting nvim/kitty)
-kill "$COMPILER_PID" >/dev/null 2>&1
-rm -f "$DIR"/*.aux "$DIR"/*.log "$DIR"/*.fls "$DIR"/*.fdb_latexmk "$DIR"/*.synctex.gz "$DIR"/*.out
+# Editor Execution
+"$TEXT_EDITOR" "$FILEPATH"

@@ -1,0 +1,119 @@
+#!/bin/sh
+# gpurec - POSIX Wrapper for GPU Screen Recorder
+
+set -eu
+
+# --- Documentation ---
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    gpurec - interactive interface for gpu-screen-recorder
+
+SYNOPSIS
+    gpurec [OPTION]
+
+DESCRIPTION
+    Manages background instances of gpu-screen-recorder(1). Provides an 
+    interactive dmenu(1) interface to start/stop recordings or replay buffers.
+
+OPTIONS
+    --record    Toggle standard recording.
+    --replay    Start replay buffer mode.
+    --save      Save the current replay buffer to disk.
+    -h, --help  Show this manual and exit.
+
+EXIT STATUS
+    0   Success.
+    1   Missing dependencies or state conflict.
+EOF
+    exit 0
+fi
+# ---------------------
+
+# Dependency Validation
+for req in gpu-screen-recorder pgrep kill date dmenu; do
+    if ! command -v "$req" >/dev/null 2>&1; then
+        printf "Error: Required dependency '%s' is missing.\n" "$req" >&2
+        exit 1
+    fi
+done
+
+# Parameters
+OUT_DIR="$HOME/Videos/Captures"
+FPS="60"
+QUALITY="high"
+AUDIO="-a default_output|default_input"
+TIME="60"
+DMENU="dmenu -i -p"
+
+mkdir -p "$OUT_DIR"
+
+# State Resolution
+PID=$(pgrep -f "[g]pu-screen-recorder" | head -n 1 || true)
+IS_REPLAY=$(pgrep -f "[g]pu-screen-recorder.*-r" | head -n 1 || true)
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u normal -t 3000 "GPUREC" "$1"
+    else
+        printf "GPUREC: %s\n" "$1"
+    fi
+}
+
+# Execution Subroutines
+start_replay() {
+    [ -n "$PID" ] && exit 1
+    notify "Replay Buffer Started (${TIME}s)."
+    # shellcheck disable=SC2086
+    gpu-screen-recorder -w screen -f "$FPS" -q "$QUALITY" $AUDIO -c mkv -r "$TIME" -o "$OUT_DIR" >/tmp/gsr.log 2>&1 &
+}
+
+start_record() {
+    [ -n "$PID" ] && exit 1
+    FILE="$OUT_DIR/Record_$(date +%s).mkv"
+    notify "Recording Started."
+    # shellcheck disable=SC2086
+    gpu-screen-recorder -w screen -f "$FPS" -q "$QUALITY" $AUDIO -c mkv -o "$FILE" >/tmp/gsr.log 2>&1 &
+}
+
+stop_process() {
+    [ -z "$PID" ] && exit 1
+    kill -INT "$PID"
+    notify "Process Terminated. File muxing..."
+}
+
+save_clip() {
+    if [ -n "$IS_REPLAY" ]; then
+        kill -USR1 "$PID"
+        notify "Replay Clip Saved."
+    fi
+}
+
+# Interactive UI
+menu_ui() {
+    if [ -z "$PID" ]; then
+        # '|| true' prevents set -e from crashing if the user presses Escape
+        sel=$(printf "Start Replay\nStart Record" | $DMENU "GPUREC:" || true)
+        case "$sel" in
+            "Start Replay") start_replay ;;
+            "Start Record") start_record ;;
+        esac
+    elif [ -n "$IS_REPLAY" ]; then
+        sel=$(printf "Save Clip\nStop Replay" | $DMENU "GPUREC [REPLAY]:" || true)
+        case "$sel" in
+            "Save Clip")   save_clip ;;
+            "Stop Replay") stop_process ;;
+        esac
+    else
+        sel=$(printf "Stop Record" | $DMENU "GPUREC [RECORD]:" || true)
+        [ "$sel" = "Stop Record" ] && stop_process
+    fi
+}
+
+# CLI Dispatcher
+case "${1:-}" in
+    --replay) start_replay ;;
+    --record) if [ -z "$PID" ]; then start_record; else stop_process; fi ;;
+    --save)   save_clip ;;
+    *)        menu_ui ;;
+esac

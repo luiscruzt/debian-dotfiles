@@ -1,0 +1,85 @@
+#!/bin/sh
+# chi3status: Context-aware i3status theme manager.
+
+set -e
+set -u
+
+# --- Documentation ---
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    chi3status - interactive i3status theme manager
+
+SYNOPSIS
+    chi3status [THEME_NAME]
+
+DESCRIPTION
+    Manages the active i3status theme by mutating a symbolic link.
+    If no theme is provided, it opens an interactive selector.
+    
+    Context-Aware UI:
+    - If launched from a terminal, it uses fzf(1) natively.
+    - If launched via a background keybind, it uses dmenu(1).
+
+EXIT STATUS
+    0   Success or user cancellation.
+    1   Configuration file not found or dependencies missing.
+EOF
+    exit 0
+fi
+# ---------------------
+
+THEME_DIR="$HOME/.config/i3/status/themes"
+TARGET="$HOME/.config/i3/status/current_theme.conf"
+
+[ ! -d "$THEME_DIR" ] && mkdir -p "$THEME_DIR"
+
+get_themes() {
+    for theme in "$THEME_DIR"/*.conf; do
+        [ -e "$theme" ] || continue
+        name="${theme##*/}"
+        echo "${name%.conf}"
+    done
+}
+
+# Determine execution mode
+if [ $# -ge 1 ]; then
+    # Mode: Direct CLI invocation (e.g., chi3status kanagawa)
+    THEME_NAME="$1"
+else
+    # Mode: Interactive Selection
+    if [ -t 0 ] && command -v fzf >/dev/null 2>&1; then
+        # Context A: We are inside an active terminal -> use fzf
+        THEME_NAME=$(get_themes | fzf --prompt="Select i3 Theme: " --height=40% --layout=reverse)
+        
+    elif [ -n "${DISPLAY:-}" ] && command -v dmenu >/dev/null 2>&1; then
+        # Context B: We are running in the background (i3 keybind) -> use dmenu
+        THEME_NAME=$(get_themes | dmenu -i -p "Select i3 Theme:" -l 10 -fn "monospace-12")
+        
+    else
+        # Failsafe: Print to stderr
+        echo "Error: Requires fzf (terminal) or dmenu (X11) for interactive mode." >&2
+        exit 1
+    fi
+fi
+
+# Handle cancellation
+[ -z "$THEME_NAME" ] && exit 0
+
+THEME_PATH="$THEME_DIR/$THEME_NAME.conf"
+
+# Validation and Application
+if [ -f "$THEME_PATH" ]; then
+    ln -sf "$THEME_PATH" "$TARGET"
+    
+    if [ -n "${DISPLAY:-}" ]; then
+        i3-msg restart >/dev/null
+        # Only print success if we are in a terminal to see it
+        [ -t 0 ] && echo "Successfully deployed theme: $THEME_NAME"
+    else
+        [ -t 0 ] && echo "Theme symlinked to $THEME_NAME. (No X11 session detected)"
+    fi
+else
+    echo "Error: Configuration file not found: $THEME_PATH" >&2
+    exit 1
+fi

@@ -1,0 +1,57 @@
+#!/bin/sh
+# toggle-animations: Toggles picom between static and animated configurations.
+
+set -e
+
+# --- Documentation ---
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    toggle-animations - toggle picom configuration profiles
+
+SYNOPSIS
+    toggle-animations
+
+DESCRIPTION
+    Manages the active compositor state by mutating a symbolic link 
+    (picom.conf) between an animated configuration and a static fallback. 
+    Terminates any running instance of picom(1) and restarts the daemon.
+
+FILES
+    ~/.config/picom/picom.static.conf
+    ~/.config/picom/picom.animated.conf
+    ~/.config/picom/picom.conf (Active Symlink)
+
+EXIT STATUS
+    0   Success.
+    1   Missing required configuration files.
+EOF
+    exit 0
+fi
+# ---------------------
+
+config_dir="$HOME/.config/picom"
+static_conf="$config_dir/picom.static.conf"
+anim_conf="$config_dir/picom.animated.conf"
+target_link="$config_dir/picom.conf"
+
+# Validation
+if [ ! -f "$static_conf" ] || [ ! -f "$anim_conf" ]; then
+    echo "Error: Missing static or animated picom configuration files." >&2
+    exit 1
+fi
+
+# Symlink resolution: '|| true' prevents set -e from crashing if readlink fails
+current_target=$(readlink "$target_link" || true)
+
+# State mutation
+if [ "$current_target" = "$anim_conf" ]; then
+    ln -sf "$static_conf" "$target_link"
+else
+    ln -sf "$anim_conf" "$target_link"
+fi
+
+# Daemon restart:
+# We use '|| true' so killall doesn't halt the script if picom isn't running.
+killall picom 2>/dev/null || true
+picom -b >/dev/null 2>&1

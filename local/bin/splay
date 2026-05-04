@@ -1,19 +1,72 @@
 #!/bin/sh
-# splay: Recursive audio shuffler
+# splay: Recursive audio shuffler and player with i3 window integration.
+
+set -u
+
+# --- Documentation ---
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    splay - recursive audio shuffler and player
+
+SYNOPSIS
+    splay [DIRECTORY]
+
+DESCRIPTION
+    Recursively searches the target DIRECTORY for audio files, shuffles them, 
+    and plays the resulting randomized playlist using mpv(1). 
+
+    If executed within an i3(1) window manager environment, splay automatically 
+    orchestrates the workspace layout: it marks the origin terminal, splits the 
+    container, isolates the mpv GUI, and spawns a synchronized cava(1) visualizer.
+
+OPERANDS
+    DIRECTORY
+            The root directory to search. Defaults to the current directory.
+
+EXIT STATUS
+    0   Success.
+    1   Target directory not found or dependencies missing.
+EOF
+    exit 0
+fi
+# ---------------------
 
 TARGET="${1:-.}"
-[ ! -d "$TARGET" ] && printf "Error: Directory not found.\n" >&2 && exit 1
-EXTS_REGEX='.*\.\(flac\|mp3\|m4a\|opus\|ogg\|wav\)$'
+if [ ! -d "$TARGET" ]; then
+    printf "Error: Target directory not found: %s\n" "$TARGET" >&2
+    exit 1
+fi
 
 for req in mpv find shuf; do
-    command -v "$req" >/dev/null 2>&1 || { printf "Error: '%s' missing.\n" "$req" >&2; exit 1; }
+    if ! command -v "$req" >/dev/null 2>&1; then
+        printf "Error: Required dependency '%s' is missing.\n" "$req" >&2
+        exit 1
+    fi
 done
 
 HAS_I3=0
-command -v i3-msg >/dev/null 2>&1 && i3-msg -t get_version >/dev/null 2>&1 && HAS_I3=1
+if command -v i3-msg >/dev/null 2>&1; then
+    if i3-msg -t get_version >/dev/null 2>&1; then
+        HAS_I3=1
+    fi
+fi
+
+# POSIX Wrapper Function: Bypasses string evaluation bugs.
+# The quotes around "*.ext" are strictly required to prevent premature shell globbing.
+get_audio_files() {
+    find "$1" -type f \( \
+        -iname "*.flac" -o \
+        -iname "*.mp3" -o \
+        -iname "*.m4a" -o \
+        -iname "*.opus" -o \
+        -iname "*.ogg" -o \
+        -iname "*.wav" \
+    \)
+}
 
 if [ "$HAS_I3" -eq 1 ]; then
-    ID=$$
+    ID="$$"
     MARK="music_origin_$ID"
     MPV_TTL="music_mpv_gui_$ID"
     CAVA_TTL="music_cava_term_$ID"
@@ -23,20 +76,31 @@ if [ "$HAS_I3" -eq 1 ]; then
     trap 'i3-msg "[title=\"$CAVA_TTL\"] kill" >/dev/null 2>&1; i3-msg "[con_mark=\"$MARK\"] unmark" >/dev/null 2>&1' EXIT INT TERM
 
     (
-        for i in $(seq 1 20); do i3-msg -t get_tree | grep -q "\"name\":\"$MPV_TTL\"" && break; sleep 0.1; done
+        i=0
+        while [ "$i" -lt 20 ]; do
+            i3-msg -t get_tree | grep -q "\"name\":\"$MPV_TTL\"" && break
+            sleep 0.1
+            i=$((i + 1))
+        done
 
         i3-msg "[title=\"$MPV_TTL\"] focus; move right" >/dev/null
         i3-msg "[con_mark=\"$MARK\"] focus; split v" >/dev/null
         
         if command -v cava >/dev/null 2>&1 && command -v kitty >/dev/null 2>&1; then
             kitty --class="music_cava" --title="$CAVA_TTL" -e cava &
-            for i in $(seq 1 20); do i3-msg -t get_tree | grep -q "\"name\":\"$CAVA_TTL\"" && break; sleep 0.1; done
+            
+            j=0
+            while [ "$j" -lt 20 ]; do
+                i3-msg -t get_tree | grep -q "\"name\":\"$CAVA_TTL\"" && break
+                sleep 0.1
+                j=$((j + 1))
+            done
         fi
         
         i3-msg "[title=\"$MPV_TTL\"] focus" >/dev/null
     ) &
 
-    find "$TARGET" -type f -regex "$EXTS_REGEX" | shuf | mpv --force-window=yes --title="$MPV_TTL" --playlist=-
+    get_audio_files "$TARGET" | shuf | mpv --force-window=yes --title="$MPV_TTL" --playlist=-
 else
-    find "$TARGET" -type f -regex "$EXTS_REGEX" | shuf | mpv --playlist=-
+    get_audio_files "$TARGET" | shuf | mpv --playlist=-
 fi

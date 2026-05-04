@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# gutenberg - fuzzy finder for the local pdf library
+
+set -euo pipefail
+
+if [[ ! -t 0 ]]; then
+    exec st -c "gutenberg_float" -e "$0" "$@"
+fi
+
+# --- Help Menu ---
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+NAME
+    gutenberg - fuzzy finder for pdfs
+
+SYNOPSIS
+    gutenberg [OPTIONS]
+
+DESCRIPTION
+    A simple script to search and open PDFs using fzf.
+    It builds a local cache of file paths to speed up searches.
+
+OPTIONS
+    -u          Update the cache.
+    -r <query>  Open a random PDF matching the query.
+    -h          Show this help text.
+
+KEYBINDS
+    Enter       Open the selected PDF.
+    Ctrl-U      Update the cache.
+    Ctrl-R      Open a random PDF matching your current search.
+
+ENVIRONMENT
+    GUTENBERG_DIR   Path to the library (default: /media/luiscruz/Toshiba/TextBooks)
+    READER      The PDF viewer (default: sioyek)
+EOF
+    exit 0
+fi
+
+# Setup environment variables
+GUTENBERG_DIR="${GUTENBERG_DIR:-/media/luiscruz/Toshiba/TextBooks}"
+PDF_VIEWER="${READER:-sioyek}"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gutenberg_manager"
+CACHE_FILE="$CACHE_DIR/catalog.txt"
+
+mkdir -p "$CACHE_DIR"
+
+# Check if the drive is actually mounted
+if [[ ! -d "$GUTENBERG_DIR" ]]; then
+    printf "Error: Drive not mounted at %s\n" "$GUTENBERG_DIR" >&2
+    read -r _ < /dev/tty
+    exit 1
+fi
+
+# Build or update the path cache
+update_cache() {
+    printf "Indexing library...\n"
+    cd "$GUTENBERG_DIR" || exit 1
+    
+    if command -v fdfind >/dev/null 2>&1; then
+        fdfind -e pdf -t f . > "$CACHE_FILE"
+    elif command -v fd >/dev/null 2>&1; then
+        fd -e pdf -t f . > "$CACHE_FILE"
+    else
+        find . -type f -name "*.pdf" | sed 's|^\./||' > "$CACHE_FILE"
+    fi
+    
+    if command -v notify-send >/dev/null 2>&1; then
+        COUNT=$(wc -l < "$CACHE_FILE")
+        notify-send -u low "gutenberg" "Cache updated: $COUNT files found."
+    fi
+}
+
+# Create cache if it doesn't exist yet
+[[ ! -f "$CACHE_FILE" ]] && update_cache
+
+# Process command line flags
+while getopts "ur:" opt; do
+    case "$opt" in
+        u) 
+            update_cache 
+            exit 0 
+            ;;
+        r) 
+            TARGET=$(grep -i "$OPTARG" "$CACHE_FILE" | shuf -n 1 || true)
+            if [[ -n "$TARGET" ]]; then
+                setsid -f "$PDF_VIEWER" "$GUTENBERG_DIR/$TARGET" >/dev/null 2>&1
+                exit 0
+            else
+                printf "No documents found for '%s'.\n" "$OPTARG" >&2
+                exit 1
+            fi
+            ;;
+        \?) exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# Main interactive loop
+while true; do
+    
+    # Run fzf and capture the user's input and selection
+    FZF_OUTPUT=$(cat "$CACHE_FILE" | \
+        fzf --prompt="Gutenberg> " \
+            --expect=ctrl-u,ctrl-r \
+            --print-query \
+            --header="Enter: Read | C-R: Random | C-U: Update Cache" \
+            --no-multi \
+            --height=100% --layout=reverse) || true
+
+    # Extract data from fzf output
+    QUERY=$(sed -n '1p' <<< "$FZF_OUTPUT")
+    KEY=$(sed -n '2p' <<< "$FZF_OUTPUT")
+    SELECTION=$(sed -n '3p' <<< "$FZF_OUTPUT")
+
+    # Exit if user pressed ESC
+    [[ -z "$FZF_OUTPUT" ]] && break
+
+    # Handle key presses
+    case "$KEY" in
+        ctrl-u)
+            clear
+            update_cache
+            sleep 1
+            continue
+            ;;
+        ctrl-r)
+            TARGET=$(grep -i "$QUERY" "$CACHE_FILE" | shuf -n 1 || true)
+            if [[ -n "$TARGET" ]]; then
+                # STRICT FORK
+                setsid -f "$PDF_VIEWER" "$GUTENBERG_DIR/$TARGET" >/dev/null 2>&1
+                break
+            fi
+            ;;
+        "")
+            if [[ -n "$SELECTION" ]]; then
+                # STRICT FORK
+                setsid -f "$PDF_VIEWER" "$GUTENBERG_DIR/$SELECTION" >/dev/null 2>&1
+                break
+            fi
+            ;;
+    esac
+done

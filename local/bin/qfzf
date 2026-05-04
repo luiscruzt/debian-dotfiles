@@ -1,0 +1,99 @@
+#!/usr/bin/env zsh
+# qfzf - interactive file finder.
+# A wrapper around fd(1) and fzf(1)
+
+set -eo pipefail
+
+if [[ ! -t 0 ]]; then
+    exec st -c "quickfzf_fullscreen" -e "$0" "$@"
+fi
+
+_quickfzf_usage() {
+    cat <<EOF
+NAME
+    qfzf - interactive file finder and opener
+
+SYNOPSIS
+    qfzf [-h | --help] [-p <dir>] [-e <ext>] [-u] [PATH]
+
+DESCRIPTION
+    qfzf provides an interactive interface to search, select, and open files.
+    It wraps fd(1) for directory traversal and fzf(1) for filtering. Selected
+    files can be opened in the default terminal editor, launched in detached
+    GUI applications, or copied to the system clipboard as absolute paths.
+
+OPTIONS
+    -p, --path <dir>
+            Set the base directory for the search (default: current directory).
+
+    -e, --ext <ext>
+            Filter results by file extension (e.g., pdf, c, sh).
+
+    -u, --unrestricted
+            Do not respect .gitignore rules. Hidden files are included by default.
+
+    -h, --home
+            Set the base directory for the search to \$HOME.
+
+    --help
+            Print this manual and exit.
+
+KEYBINDINGS
+    TAB       Toggle selection for multiple files.
+    CTRL-F    Toggle the preview window size.
+    CTRL-Y    Copy the absolute path(s) of the selected file(s) to the clipboard.
+    CTRL-O    Open the selected file with the system default application in a detached process.
+    ENTER     Open the selected file(s) in \$EDITOR and exit.
+EOF
+}
+
+search_root="."
+# Initialize an array for fd arguments.
+local fd_args=(--type f --color=never --hidden)
+
+# Argument parsing logic
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p|--path) search_root="$2"; shift 2 ;;
+        -e|--ext)  fd_args+=(--extension "$2"); shift 2 ;;
+        -u|--unrestricted) fd_args+=(--no-ignore); shift ;;
+        -h|--home) search_root="$HOME"; shift ;;
+        --help)    _quickfzf_usage; exit 0 ;;
+        -*)        echo "quickfzf: invalid option -- '$1'" >&2; _quickfzf_usage >&2; exit 1 ;;
+        *)         search_root="$1"; shift ;;
+    esac
+done
+
+# Dynamic dependency resolution
+fd_bin=$(command -v fdfind || command -v fd) || true
+bat_bin=$(command -v batcat || command -v bat) || true
+editor_bin="${EDITOR:-nvim}"
+open_bin=$(command -v xdg-open || command -v open) || true
+copy_bin=$(command -v wl-copy || command -v xclip) || true
+
+# Adjust clipboard command for X11 environments
+[[ "$copy_bin" == *"xclip"* ]] && copy_bin="xclip -selection clipboard"
+
+# Environmental validation
+if [[ -z "$fd_bin" ]] || ! command -v fzf >/dev/null 2>&1; then
+    echo "Error: Mandatory dependencies (fd, fzf) unresolved." >&2
+    exit 1
+fi
+
+if [[ ! -d "$search_root" ]]; then
+    echo "Error: Target is not a valid directory: $search_root" >&2
+    exit 1
+fi
+
+# Core execution pipeline
+"$fd_bin" "${fd_args[@]}" . "$search_root" 2>/dev/null | fzf \
+    --multi \
+    --ansi \
+    --prompt "quickfzf > " \
+    --header " C-f: Fullscreen | C-y: Yank | C-o: Open GUI | ENTER: Edit" \
+    --preview "${bat_bin:-cat} --style=numbers --color=always {} 2>/dev/null || ls -lh {}" \
+    --preview-window "right:60%:border-left" \
+    --bind "ctrl-f:toggle-preview" \
+    --bind "ctrl-y:execute-silent(realpath {+} | $copy_bin)+abort" \
+    --bind "ctrl-o:execute-silent(setsid $open_bin {} >/dev/null 2>&1 &)+abort" \
+    --bind "enter:become($editor_bin {+})"

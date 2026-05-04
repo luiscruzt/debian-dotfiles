@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# sgit - Interactive recursive Git repository manager
+
+set -euo pipefail
+
+# --- Documentation ---
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+NAME
+    sgit - Interactive recursive Git manager
+
+SYNOPSIS
+    sgit [OPTIONS]
+
+DESCRIPTION
+    A recursive repository orchestrator. Navigates directories interactively.
+    Select a target, then use keybinds to execute Git actions directly on it.
+
+OPTIONS
+    -p <path>   Override default root path (Defaults to ~/repos).
+    -h          Show this manual and exit.
+
+KEYBINDS
+    Ctrl-L      Navigate INTO directory, or OPEN file in $EDITOR.
+    Ctrl-H      Navigate UP one directory level.
+    Enter       Open Lazygit in the current context.
+    Ctrl-I      Initialize repo, prompt for GitHub URL, and open Lazygit.
+    Ctrl-C      Prompt for message, commit all changes.
+    Ctrl-P      Push current branch to remote.
+    Ctrl-F      Fast Push (Auto-commit with diff stats -> push).
+EOF
+    exit 0
+fi
+# ---------------------
+
+# 1. Option Parsing & Defaults
+SEARCH_PATH="${HOME}/repos"
+while getopts "hp:" opt; do
+    case "$opt" in
+        p) SEARCH_PATH="$(realpath "$OPTARG")" ;;
+        \?) exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# 2. Window Manager TTY Wrapper
+if [[ ! -t 1 ]] && [[ -z "${SGIT_FLOAT:-}" ]]; then
+    SCRIPT_PATH=$(realpath "$0")
+    exec env SGIT_FLOAT=1 st -c "sgit_float" -e "$SCRIPT_PATH" -p "$SEARCH_PATH" "$@"
+fi
+
+# 3. Environment & Workspace Initialization
+mkdir -p "${HOME}/repos/ext" "${HOME}/repos/personal"
+
+# 4. Dependency Validation
+for req in fzf lazygit eza git; do
+    if ! command -v "$req" >/dev/null 2>&1; then
+        printf "Error: Required dependency '%s' missing.\n" "$req" >&2
+        [[ -n "${SGIT_FLOAT:-}" ]] && read -r _ < /dev/tty
+        exit 1
+    fi
+done
+
+# 5. Exported Dynamic Preview Function
+preview_repo() {
+    local target="$1"
+    
+    [[ -z "$target" ]] && exit 0
+    
+    # Render Directory with Eza
+    if [[ -d "$target" ]]; then
+        if [[ -d "$target/.git" ]]; then
+            printf "\033[1;32m=== Git Repository ===\033[0m\n"
+            git -C "$target" status -s
+            printf "\n"
+        else
+            printf "\033[1;33m=== Directory ===\033[0m\n\n"
+        fi
+        eza --tree --level=2 --long --no-user --no-filesize \
+            --sort=newest \
+            --time-style='+%Y-%m-%d %H:%M:%S' --color=always --icons=always \
+            --group-directories-first "$target"
+            
+    # Render File with Batcat
+    elif [[ -f "$target" ]]; then
+        printf "\033[1;34m=== File Preview ===\033[0m\n\n"
+        if command -v batcat >/dev/null 2>&1; then
+            batcat --color=always --style=numbers --line-range=:60 "$target"
+        elif command -v bat >/dev/null 2>&1; then
+            bat --color=always --style=numbers --line-range=:60 "$target"
+        else
+            cat "$target" | head -n 60
+        fi
+    fi
+}
+export -f preview_repo
+
+# 6. The Navigation Loop Engine
+CURRENT_DIR="$SEARCH_PATH"
+
+while true; do
+    cd "$CURRENT_DIR" || exit 1
+
+    # Extract files and directories, ignore .git, sort by newest.
+    FZF_OUTPUT=$(find . -mindepth 1 -maxdepth 1 ! -name ".git" -printf '%T@ %P\n' 2>/dev/null | sort -nr | cut -d' ' -f2- | \
+        fzf --prompt="sgit [$(basename "$CURRENT_DIR")]> " \
+            --preview="bash -c 'preview_repo \"{}\"'" \
+            --expect=ctrl-h,ctrl-l,ctrl-i,ctrl-c,ctrl-p,ctrl-f \
+            --header="C-L: In/Edit | C-H: Up | Enter: Lazygit | C-I: Init | C-C: Commit | C-P: Push | C-F: Fast Push" \
+            --no-multi \
+            --height=100% --layout=reverse) || true
+
+    # Exit if user pressed ESC
+    [[ -z "$FZF_OUTPUT" ]] && break
+
+    # Parse fzf output
+    KEY=$(head -n 1 <<< "$FZF_OUTPUT")
+    SELECTION=$(sed '1d' <<< "$FZF_OUTPUT")
+
+    # Graceful fallback for empty directories
+    if [[ -z "$KEY" && -z "$SELECTION" ]]; then
+        continue
+    fi
+
+    TARGET_PATH="$CURRENT_DIR/$SELECTION"
+
+    # Handle Navigation & Editing Keys
+    if [[ "$KEY" == "ctrl-l" ]]; then
+        if [[ -n "$SELECTION" && -d "$TARGET_PATH" ]]; then
+            CURRENT_DIR="$TARGET_PATH"
+        elif [[ -n "$SELECTION" && -f "$TARGET_PATH" ]]; then
+            ${EDITOR:-nvim} "$TARGET_PATH" < /dev/tty
+        fi
+        continue
+    elif [[ "$KEY" == "ctrl-h" ]]; then
+        if [[ "$CURRENT_DIR" != "/" ]]; then
+            CURRENT_DIR="$(dirname "$CURRENT_DIR")"
+        fi
+        continue
+    fi
+
+    # Context Resolution for Git Actions
+    # If a directory is highlighted, act on that directory. 
+    # If a file is highlighted, act on the current directory.
+    if [[ -d "$TARGET_PATH" ]]; then
+        WORK_DIR="$TARGET_PATH"
+    else
+        WORK_DIR="$CURRENT_DIR"
+    fi
+
+    cd "$WORK_DIR" || continue
+
+    # Action Matrix
+    clear
+    case "$KEY" in
+        "") 
+            # Enter Key: Launch LazyGit if inside a work tree
+            if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                lazygit
+            else
+                printf "\033[1;31mError:\033[0m Not a git repository.\nPress Ctrl-I to initialize.\n"
+                sleep 1.5
+            fi
+            continue
+            ;;
+        ctrl-i)
+            if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                printf "Initializing repository in \033[1;36m%s\033[0m...\n\n" "$WORK_DIR"
+                git init
+                printf "\nEnter GitHub Remote URL (or press Enter to skip):\n> "
+                read -r remote_url < /dev/tty
+                if [[ -n "$remote_url" ]]; then
+                    git remote add origin "$remote_url"
+                    printf "Remote 'origin' added.\n"
+                fi
+                sleep 1
+                lazygit
+            else
+                printf "Repository is already initialized.\n"
+                sleep 1.5
+            fi
+            continue
+            ;;
+        ctrl-c)
+            printf "Target: %s\n" "$WORK_DIR"
+            git status -s
+            printf "\nCommit message: "
+            read -r msg < /dev/tty
+            if [[ -n "$msg" ]]; then
+                git add .
+                git commit -m "$msg"
+            fi
+            ;;
+        ctrl-p)
+            printf "Target: %s\n\nPushing to remote...\n" "$WORK_DIR"
+            git push
+            ;;
+        ctrl-f)
+            printf "Target: %s\n\nExecuting Fast Push...\n" "$WORK_DIR"
+            git add .
+            
+            STATS=$(git diff --cached --shortstat 2>/dev/null | xargs)
+            [[ -z "$STATS" ]] && STATS="Minor structural updates"
+            
+            git commit -m "Sync: $STATS"
+            git push
+            ;;
+    esac
+
+    printf "\nPress any key to return to sgit..."
+    read -r -n 1 -s < /dev/tty
+done
+
+# 7. Floating Window Exit Hook
+if [[ -n "${SGIT_FLOAT:-}" ]]; then
+    printf "\nExiting... Press Enter to close window.\n"
+    read -r _ < /dev/tty
+fi

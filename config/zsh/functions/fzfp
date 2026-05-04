@@ -1,0 +1,84 @@
+#!/usr/bin/env zsh
+# fzfp: Fuzzy File Path
+# High-speed file locator and executor using fd and fzf.
+local search_root="."
+local ext_filter=""
+local hidden_flag=""
+
+    # System dependencies resolution
+    local fd_bin=$(command -v fdfind || command -v fd)
+    local bat_bin=$(command -v batcat || command -v bat)
+    local editor_bin="${EDITOR:-nvim}"
+    local open_bin=$(command -v xdg-open || command -v open)
+
+    local copy_bin=$(command -v wl-copy || command -v xclip)
+    [[ "$copy_bin" == *"xclip"* ]] && copy_bin="xclip -selection clipboard"
+
+    # POSIX-Standard Documentation
+    _fzfp_usage() {
+        cat <<EOF
+NAME
+    fzfp - Fuzzy File Path Locator
+
+SYNOPSIS
+    fzfp [OPTIONS] [PATH]
+
+DESCRIPTION
+    Asynchronously enumerates files using 'fd' and filters them via 'fzf' in-memory.
+    Designed to find, yank, or open files instantly without indexing content.
+
+OPTIONS
+    -p, --path <dir>  Explicitly define the root directory.
+    -e, --ext <ext>   Filter strictly by file extension (e.g., pdf, md).
+    -a, --all         Include hidden files and omit .git exclusion.
+    -h, --home        Search starting from \$HOME.
+    --help            Display this documentation.
+
+CONTROLS
+    CTRL-F            Toggle fullscreen preview.
+    CTRL-Y            Yank absolute canonical file path to clipboard.
+    CTRL-O            Open file with system default application (xdg-open).
+    ENTER             Open file in \$EDITOR.
+    ALT-ENTER         Print canonical path to stdout (for pipelining).
+EOF
+}
+
+    # Argument parsing
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--path) search_root="$2"; shift 2 ;;
+            -e|--ext)  ext_filter="--extension $2"; shift 2 ;;
+            -a|--all)  hidden_flag="--hidden"; shift ;;
+            -h|--home) search_root="$HOME"; shift ;;
+            --help)    _fzfp_usage; return 0 ;;
+            -*)        echo "fzfp: invalid option -- '$1'"; _fzfp_usage; return 1 ;;
+            *)         search_root="$1"; shift ;;
+        esac
+    done
+
+    # Dependency check
+    if [[ -z "$fd_bin" ]] || ! command -v fzf >/dev/null; then
+        echo "fzfp: 'fd' (or 'fdfind') and 'fzf' are mandatory dependencies."
+        return 1
+    fi
+
+    # Path validation
+    if [[ ! -d "$search_root" ]]; then
+        echo "fzfp: invalid directory -- '$search_root'"
+        return 1
+    fi
+
+    # Execution Pipeline
+    # 1. fd: Emits all files (--type f) asynchronously.
+    # 2. fzf: Buffers output and provides the fuzzy filtering interface.
+    "$fd_bin" --type f --color=never $hidden_flag $ext_filter . "$search_root" 2>/dev/null | fzf \
+        --ansi \
+        --prompt "Find File > " \
+        --header "C-f: Fullscreen | C-y: Yank Path | C-o: System Open | ALT-ENTER: Print" \
+        --preview "$bat_bin --style=numbers --color=always {} 2>/dev/null || ls -lh {}" \
+        --preview-window "right:60%:border-left" \
+        --bind "ctrl-f:toggle-preview" \
+        --bind "ctrl-y:execute-silent(realpath {} | tr -d '\n' | $copy_bin)+execute(echo 'Yanked: '$(realpath {}) > /dev/tty)" \
+        --bind "ctrl-o:execute-silent($open_bin {} >/dev/null 2>&1)+abort" \
+        --bind "enter:execute($editor_bin {})" \
+        --bind "alt-enter:become(realpath {})"

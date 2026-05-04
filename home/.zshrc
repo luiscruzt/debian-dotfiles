@@ -1,11 +1,16 @@
 HISTFILE=~/.zsh_history
-HISTSIZE=10000
-SAVEHIST=10000
+HISTSIZE=3000 SAVEHIST=3000
 setopt APPEND_HISTORY
 setopt SHARE_HISTORY
 setopt HIST_REDUCE_BLANKS
 setopt NO_CLOBBER
 setopt PROMPT_SUBST
+
+USER_FUNCS_DIR="${ZDOTDIR:-$HOME}/.config/zsh/functions"
+if [[ -d "$USER_FUNCS_DIR" ]]; then
+    fpath=("$USER_FUNCS_DIR" $fpath)
+    autoload -Uz "$USER_FUNCS_DIR"/*(N.:t)
+fi
 
 autoload -Uz compinit
 if [[ -n ${ZDOTDIR:-$HOME}/.zcompdump(#qN.m-1) ]]; then
@@ -14,22 +19,22 @@ else
   compinit
 fi
 
+# >> VIM MODE>>
+
 KEYTIMEOUT=1
 bindkey -v
 
-
 bindkey -M viins '^P' up-line-or-history
 bindkey -M viins '^N' down-line-or-history
-bindkey -M viins '^R' history-incremental-search-backward
 
 bindkey '^ ' autosuggest-accept
 bindkey '^j' autosuggest-execute
 
 function zle-line-init zle-keymap-select {
     if [[ "${KEYMAP}" == "vicmd" ]]; then
-        VI_STATE="%F{blue}❮%f"
+        VIM_STATE="%F{blue}@%f"
     else
-        VI_STATE="%F{green}%(!.#.$)%f"
+        VIM_STATE="%F{green}%(!.#.$)%f"
     fi
     zle reset-prompt
 }
@@ -37,36 +42,19 @@ function zle-line-init zle-keymap-select {
 zle -N zle-line-init
 zle -N zle-keymap-select
 
-PROMPT='[%n@%F{red}%m%f %F{yellow}%3~%f]%(?..%F{red}[%?]%f)${VI_STATE} '
+# << VIM MODE <<
 
-eval "$(zoxide init zsh)"
+PROMPT='[%n@%F{red}%m%f %F{yellow}%3~%f]${VIM_STATE} '
 
 source $HOME/miniforge3/etc/profile.d/conda.sh
 
-ZSH_AUTOSUGGEST_STRATEGY=(completion)
+# >> zoxide+yazi functions >>
 
-kittyrc() {
-    nvim ~/.config/kitty/kitty.conf
-}
-base() {
-    conda activate base
-}
-skynet() {
-    conda activate skynet
-}
-zshrc() {
-    nvim ~/.zshrc 
-}
-envconfig() {
-    nvim ~/.zshenv
-}
-reload() {
-    exec zsh
-}
+eval "$(zoxide init zsh)"
 
 zls() {
     zoxide query "$@"
-    ls -ltr --color=auto "$(zoxide query "$@")"
+    ls -hotr --color=auto "$(zoxide query "$@")"
 }
 
 zy() {
@@ -95,18 +83,10 @@ function y() {
 	rm -f -- "$tmp"
 }
 
-function bless() {
-    if [[ -f "$1" ]]; then
-        chmod +x "$1"
-        mv "$1" "$HOME/.local/bin/"
-        print -P "%F{green}Blessed:%f $1 moved to ~/.local/bin/"
-    else
-        print -P "%F{red}Error:%f File not found."
-    fi
-}
+# << zoxide+yazi functions <<
 
-alias ls="ls -long -t -r --color=auto"
-alias la="eza -lh --icons --time-style='+%b %d %H:%M' --sort=modified --reverse --all"
+alias ls="ls -hotr --color=auto"
+alias la="eza -lh --icons --time-style='+%b %d %H:%M' --all"
 alias lt="eza --tree --level=2 --icons "
 alias bat="batcat"
 alias cp='cp -iv'
@@ -117,24 +97,35 @@ alias clip='xclip -selection clipboard'
 alias icat="kitten icat"
 alias ports='ss -tulanp'
 
-
 alias texwatch='latexmk -pvc -pdf -interaction=nonstopmode'
 alias texclean='latexmk -c && rm -fv *.bbl *.run.xml *.synctex.gz'
 alias texpurge='latexmk -C && rm -fv *.bbl *.run.xml *.synctex.gz'
 
 alias :qconda='conda deactivate && echo "[Conda Environment Exited]"'
+alias skynet='conda activate skynet'
+alias base='conda activate base'
 
-alias bashrc='${EDITOR:-nvim} $HOME/.bashrc'
-alias vimrc='${EDITOR:-nvim} $HOME/.vimrc'
-alias nvimrc='${EDITOR:-nvim} $HOME/.config/nvim/init.lua'
-alias tmuxconf='${EDITOR:-nvim} $HOME/.tmux.conf'
-alias i3rc='${EDITOR:-nvim} $HOME/.config/i3/config'
+alias bashrc='nvim $HOME/.bashrc'
+alias zshrc='nvim $HOME/.zshrc'
+alias reload='source $HOME/.zshrc'
+alias vimrc='nvim $HOME/.vimrc'
+alias nvimrc='nvim $HOME/.config/nvim/init.lua'
+alias kittyrc='nvim ~/.config/kitty/kitty.conf'
+alias tmuxconf='nvim $HOME/.tmux.conf'
+alias i3rc='nvim $HOME/.config/i3/config'
+alias picomrc='nvim $HOME/.config/picom/picom.conf'
 
 typeset -A ZSH_HIGHLIGHT_STYLES
-ZSH_HIGHLIGHT_STYLES[path]='fg=cyan,underline'
+ZSH_HIGHLIGHT_STYLES[path]='fg=yellow,underline'
 ZSH_HIGHLIGHT_STYLES[command]='fg=green,bold'
 ZSH_HIGHLIGHT_STYLES[alias]='fg=magenta'
 ZSH_HIGHLIGHT_STYLES[function]='fg=blue,bold'
 ZSH_AUTOSUGGEST_STRATEGY=(completion)
 source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+
+source <(fzf --zsh)
+
+export FZF_DEFAULT_OPTS="--height 40% --layout=reverse --border --inline-info \
+--color='hl:148,hl+:154,pointer:032,marker:010,bg+:237,gutter:008' \
+--bind 'ctrl-u:preview-half-page-up,ctrl-d:preview-half-page-down'"

@@ -1,0 +1,103 @@
+#!/usr/bin/env zsh
+# fcd: Fuzzy Controller for Directories
+# A standardized, multi-modal navigation tool for Zsh.
+local search_root="."
+local mode="cd"
+local target=""
+
+    # Internal dependency resolution
+    local fd_bin=$(command -v fdfind || command -v fd)
+    local bat_bin=$(command -v batcat || command -v bat)
+
+    _fcd_usage() {
+        cat <<EOF
+NAME
+    fcd - Fuzzy Controller for Directories
+
+SYNOPSIS
+    fcd [OPTIONS] [PATH]
+
+DESCRIPTION
+    Selects a directory via fzf and executes a specified action.
+
+OPTIONS
+    -t, --tmux      Open target in a new or existing tmux session.
+    -y, --yazi      Open target in Yazi.
+    -c, --yazi-cd   Open in Yazi and change CWD on exit.
+    -v, --vim       Open Neovim directly in the target directory.
+    -h, --home      Search starting from \$HOME.
+    -p, --projects  Search starting from ~/Projects (if exists).
+    --help          Display this help.
+
+DEPENDENCIES
+    Required: $fd_bin, fzf
+    Optional: eza (preview), tmux, yazi, nvim
+EOF
+}
+
+    # Argument Parsing
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -t|--tmux)    mode="tmux"; shift ;;
+            -y|--yazi)    mode="yazi"; shift ;;
+            -c|--yazi-cd) mode="yazi-cd"; shift ;;
+            -v|--vim)     mode="vim"; shift ;;
+            -h|--home)    search_root="$HOME"; shift ;;
+            -p|--projects) search_root="${HOME}/Projects"; shift ;;
+            --help)       _fcd_usage; return 0 ;;
+            -*)           echo "fcd: invalid option -- '$1'"; _fcd_usage; return 1 ;;
+            *)            search_root="$1"; shift ;;
+        esac
+    done
+
+    # Environmental Validation
+    if [[ ! -d "$search_root" ]]; then
+        echo "fcd: '$search_root': Directory not found."
+        return 1
+    fi
+
+    if [[ -z "$fd_bin" ]] || ! command -v fzf >/dev/null; then
+        echo "fcd: fd/fdfind and fzf are required."
+        return 1
+    fi
+
+    # Phase 1: Directory Selection
+    target=$("$fd_bin" --type d --hidden --exclude .git . "$search_root" 2>/dev/null | fzf \
+        --height 40% --layout=reverse --border \
+        --prompt "Navigate > " \
+        --preview "eza --tree --level=2 --color=always --icons --group-directories-first {} 2>/dev/null || ls -R {}")
+
+    [[ -z "$target" ]] && return 130 
+
+    # Phase 2: Action Execution
+    case "$mode" in
+        "cd")
+            cd "$target" || return 1
+            ;;
+        "vim")
+            cd "$target" && ${EDITOR:-nvim} .
+            ;;
+        "tmux")
+            if ! command -v tmux >/dev/null; then
+                echo "fcd: tmux not found"; return 1
+            fi
+            local session_name=$(basename "$target" | tr '.' '_')
+            tmux new-session -d -c "$target" -s "$session_name" 2>/dev/null
+            if [[ -n "$TMUX" ]]; then
+                tmux switch-client -t "$session_name"
+            else
+                tmux attach-session -t "$session_name"
+            fi
+            ;;
+        "yazi")
+            yazi "$target"
+            ;;
+        "yazi-cd")
+            local tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
+            yazi "$target" --cwd-file="$tmp"
+            if cwd="$(cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+                cd -- "$cwd"
+            fi
+            rm -f -- "$tmp"
+            ;;
+    esac

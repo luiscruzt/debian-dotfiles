@@ -1,0 +1,64 @@
+#!/usr/bin/env zsh
+
+# help translation
+[[ "$1" == "--help" ]] && set -- "-h"
+
+# environment setup
+local OPTIND=1 OPTARG opt
+local target_dir="$HOME/.local/bin"
+local go_flag=0
+
+# argument parsing
+while getopts "hgd:" opt; do
+    case "$opt" in
+        h)
+            cat << 'EOF'
+Usage: bless [-g] [-d DIR] <file>
+
+Deploy and grant execution permissions to a file.
+
+Options:
+  -g          Navigate to target directory upon completion
+  -d DIR      Specify target directory (default: ~/.local/bin)
+  -h, --help  Display this help interface
+EOF
+            return 0
+            ;;
+        g) go_flag=1 ;;
+        d) target_dir="$OPTARG" ;;
+        \?) return 1 ;;
+    esac
+done
+
+# pointer offset
+shift $((OPTIND - 1))
+local target_file="$1"
+
+# input validation
+if [[ -z "$target_file" ]]; then
+    print -P "%F{red}Error:%f Target file required. Use -h for help." >&2
+    return 1
+fi
+
+if [[ ! -f "$target_file" ]]; then
+    print -P "%F{red}Error:%f File '$target_file' not found." >&2
+    return 1
+fi
+
+# directory allocation
+mkdir -p "$target_dir" || return 1
+
+# atomic execution
+if chmod +x "$target_file" && mv "$target_file" "$target_dir/"; then
+    
+    # success confirmation
+    print -P "%F{green}Blessed:%f '${target_file:t}' is now executable in $target_dir/"
+    
+    # state transition
+    if (( go_flag )); then
+        cd "$target_dir" || return 1
+    fi
+else
+    print -P "%F{red}Error:%f Privilege or move operation failed." >&2
+    return 1
+fi

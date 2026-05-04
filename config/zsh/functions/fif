@@ -1,0 +1,78 @@
+#!/usr/bin/env zsh
+# fif: Find In Files
+# Interactive live search with dynamic preview centering.
+local search_root="."
+local ext_filter=""
+local initial_query=""
+    local hidden_flag=""
+local bat_bin=$(command -v batcat || command -v bat)
+    local editor_bin="${EDITOR:-nvim}"
+local copy_bin=$(command -v wl-copy || command -v xclip)
+    [[ "$copy_bin" == *"xclip"* ]] && copy_bin="xclip -selection clipboard"
+
+    _fif_usage() {
+        cat <<EOF
+            NAME
+            fif - Find In Files
+
+            SYNOPSIS
+            fif [OPTIONS] [QUERY]
+
+            DESCRIPTION
+            Interactive live search. Opens selected match in \$EDITOR.
+
+            OPTIONS
+            -p, --path <dir>  Specify the root directory for the search (default: .).
+            -e, --ext <ext>   Filter by file extension (e.g., tex, cpp).
+            -a, --all         Include hidden files.
+            -h, --home        Search from \$HOME.
+            --help            Show this documentation.
+
+            CONTROLS
+            CTRL-F            Toggle fullscreen preview.
+            CTRL-Y            Yank file path to clipboard.
+            ENTER             Open file at matched line.
+            EOF
+    }
+
+# Argument parsing
+while [[ $# -gt 0 ]]; do
+case "$1" in
+-p|--path) search_root="$2"; shift 2 ;;
+-e|--ext)  ext_filter="-t$2"; shift 2 ;;
+-a|--all)  hidden_flag="--hidden"; shift ;;
+-h|--home) search_root="$HOME"; shift ;;
+--help)    _fif_usage; return 0 ;;
+-*)        echo "fif: invalid option -- '$1'"; _fif_usage; return 1 ;;
+*)         initial_query="$1"; shift ;;
+esac
+done
+
+# Dependency check
+if ! command -v rg >/dev/null || ! command -v fzf >/dev/null; then
+echo "fif: ripgrep and fzf are required."
+return 1
+fi
+
+# Path validation
+if [[ ! -d "$search_root" ]]; then
+echo "fif: invalid directory -- '$search_root'"
+return 1
+fi
+
+local rg_prefix="rg --column --line-number --no-heading --color=always --smart-case --glob '!.git/*' $hidden_flag $ext_filter"
+
+# Execution Pipeline
+eval "$rg_prefix" "$initial_query" "$search_root" 2>/dev/null | fzf \
+         --ansi \
+         --disabled \
+         --query "$initial_query" \
+         --prompt "Search > " \
+         --header "C-f: Fullscreen | C-y: Yank Path" \
+         --delimiter : \
+         --preview "$bat_bin --style=numbers --color=always --highlight-line {2} {1} 2>/dev/null || cat {1}" \
+         --preview-window "right:60%:+{2}-/2:border-left" \
+         --bind "change:reload:sleep 0.1; $rg_prefix {q} $search_root || true" \
+         --bind "ctrl-f:toggle-preview" \
+         --bind "ctrl-y:execute-silent(realpath {1} | tr -d '\n' | $copy_bin)+execute(echo 'Yanked: '$(realpath {1}) > /dev/tty)" \
+         --bind "enter:execute($editor_bin +{2} {1})"

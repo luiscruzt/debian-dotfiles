@@ -59,8 +59,13 @@ Description: Powerful and easy to use command line calculator
  .
  This package contains the command line version of Qalculate!.
 
-## cliamp
+## Package: cliamp
 - Description: A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Bilibili, Spotify, Xiaoyuzhou (小宇宙), Navidrome, Plex, and Jellyfin with a spectrum visualizer, parametric EQ, and playlist management.
 
 https://github.com/bjarneo/cliamp.git
+
+# Package: pulsemixer
+- Description: command-line mixer for PulseAudio with a curses interface
+ pulsemixer is a command-line volume mixer for PulseAudio that provides a
+ customizable curses-based interactive user interface.
 

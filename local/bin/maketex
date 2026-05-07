@@ -1,28 +1,64 @@
-#!/bin/sh
-# maketex: POSIX LaTeX scaffold.
+#!/usr/bin/env sh
+# maketex: TTY-native LaTeX scaffold and continuous compilation orchestrator.
 
-BASE_DIR="$HOME/latex"
-VAULT_DIR="$HOME/texvault"
+BASE_DIR="${HOME}/latex"
+VAULT_DIR="${HOME}/texvault"
+EDITOR="${EDITOR:-nvim}"
 
-# Dependecy check
-for cmd in dmenu nvim latexmk rsync; do
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    maketex - scaffold and orchestrate LaTeX environments
+
+SYNOPSIS
+    maketex [CATEGORY] [PROJECT_NAME]
+
+DESCRIPTION
+    Generates an isolated, domain-specific LaTeX directory structure.
+    Initializes a Makefile utilizing latexmk for multi-pass compilation
+    and continuous sync-watching.
+
+TARGETS (make)
+    build : Single-pass latexmk compilation.
+    watch : Daemonized compilation (rebuilds instantly on file save).
+    clean : Purges LaTeX auxiliary artifacts.
+    sync  : Cleans directory and rsyncs to vault with automated Git commit.
+
+CATEGORIES
+    math, phys, eng, lab, lit, phil
+EOF
+    exit 0
+fi
+
+# Dependency verification
+for cmd in nvim latexmk rsync git fzf; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
-        printf "Error: %s is not installed.\n" "$cmd" >&2
+        printf "Error: Dependency '%s' is missing.\n" "$cmd" >&2
         exit 1
     fi
 done
 
-PROJ=$(dmenu -p "Project:" < /dev/null)
-[ -z "$PROJ" ] && exit 1
+# CLI argument parsing and fallback
+CAT="$1"
+if [ -z "$CAT" ]; then
+    CAT=$(printf "eng\nlab\nlit\nmath\nphil\nphys" | fzf --prompt="Category > ")
+    [ -z "$CAT" ] && exit 0
+fi
 
-CAT=$(printf "eng\nlab\nlit\nmath\nphil\nphys" | dmenu -i -l 6 -p "Category:")
-[ -z "$CAT" ] && exit 1
+PROJ="$2"
+if [ -z "$PROJ" ]; then
+    printf "Project Name: "
+    read -r PROJ
+    [ -z "$PROJ" ] && exit 0
+fi
 
+# Mathematical sanitization for paths
 DIR_NAME=$(printf "%s" "$PROJ" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | tr -s '-' | sed 's/^-//;s/-$//')
 DIR="$BASE_DIR/$CAT/$DIR_NAME"
 
-[ -d "$DIR" ] && exit 1
+[ -d "$DIR" ] && { printf "Error: Project '%s' already exists.\n" "$DIR" >&2; exit 1; }
 
+# Domain logic routing
 case "$CAT" in
     phil|lit)
         SECTIONS="01_introduction 02_argumentation 03_objections 04_conclusion"
@@ -38,7 +74,9 @@ case "$CAT" in
         ;;
 esac
 
+# Filesystem scaffolding
 mkdir -p "$DIR/figures" "$DIR/sections"
+touch "$DIR/refs.bib"
 
 INPUT_BLOCK=""
 for sec in $SECTIONS; do
@@ -50,8 +88,7 @@ EOF
     INPUT_BLOCK="${INPUT_BLOCK}\input{sections/$sec.tex}\n"
 done
 
-touch "$DIR/refs.bib"
-
+# Template injection: main.tex
 cat << EOF > "$DIR/main.tex"
 \documentclass[11pt, a4paper]{article}
 \usepackage{amsmath, amssymb, amsfonts, amsthm}
@@ -68,21 +105,41 @@ cat << EOF > "$DIR/main.tex"
 \begin{document}
 \maketitle
 
-$(printf "$INPUT_BLOCK")
+$(printf "%b" "$INPUT_BLOCK")
+
 \printbibliography
 \end{document}
 EOF
 
+# Template injection: .gitignore
+cat << EOF > "$DIR/.gitignore"
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+EOF
+
+# Template injection: Makefile
 cat << EOF | sed 's/^__TAB__/\t/' > "$DIR/Makefile"
 DOC = main
 PROJ = $DIR_NAME
 CAT = $CAT
 VAULT = $VAULT_DIR
 
-all: \$(DOC).pdf
+all: build
 
-\$(DOC).pdf: \$(DOC).tex sections/*.tex refs.bib
-__TAB__latexmk -pdf -interaction=nonstopmode -halt-on-error \$(DOC).tex
+build:
+__TAB__latexmk -pdf -synctex=1 -interaction=nonstopmode -halt-on-error \$(DOC).tex
+
+watch:
+__TAB__latexmk -pdf -synctex=1 -pvc -interaction=nonstopmode -halt-on-error \$(DOC).tex
 
 clean:
 __TAB__latexmk -c \$(DOC).tex
@@ -91,22 +148,25 @@ __TAB__rm -f *.bbl *.run.xml *.synctex.gz *.bcf *.fdb_latexmk *.fls
 purge: clean
 __TAB__latexmk -C \$(DOC).tex
 
-git: clean
+sync: clean
 __TAB__@printf "Syncing \$(PROJ) to \$(VAULT)...\n"
 __TAB__mkdir -p \$(VAULT)/\$(CAT)/\$(PROJ)
-__TAB__rsync -rt --delete --exclude='Makefile' --exclude='*.run.xml' --exclude='*.bbl' --exclude='*.synctex.gz' ./ \$(VAULT)/\$(CAT)/\$(PROJ)/
+__TAB__rsync -rt --delete --exclude='Makefile' --exclude='*.run.xml' ./ \$(VAULT)/\$(CAT)/\$(PROJ)/
 __TAB__cd \$(VAULT) && git add \$(CAT)/\$(PROJ)
 __TAB__cd \$(VAULT) && git commit -m "sync: \$(CAT)/\$(PROJ) [\$(shell date +'%Y-%m-%d %H:%M:%S')]" || true
 __TAB__cd \$(VAULT) && git push origin main
 EOF
 
+# Execution and handoff
 cd "$DIR" || exit 1
-make >/dev/null 2>&1
-[ -f main.pdf ] && command -v sioyek >/dev/null && sioyek main.pdf >/dev/null 2>&1 &
+make build >/dev/null 2>&1
 
-if [ -t 0 ]; then
-    nvim main.tex
-    exec "${SHELL:-/bin/sh}"
+if [ -f main.pdf ] && command -v sioyek >/dev/null 2>&1; then
+    setsid sioyek main.pdf >/dev/null 2>&1 &
+fi
+
+if [ ! -t 0 ]; then
+    exec kitty --directory "$DIR" sh -c "$EDITOR main.tex; exec \${SHELL:-/bin/sh}"
 else
-    kitty --directory "$DIR" sh -c "nvim main.tex; exec \${SHELL:-/bin/sh}"
+    $EDITOR main.tex
 fi

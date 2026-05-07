@@ -1,0 +1,44 @@
+#!/bin/sh
+# syspower: Power management multiplexer
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    cat << 'EOF'
+NAME
+    syspower - dmenu power management multiplexer
+
+SYNOPSIS
+    syspower
+
+DESCRIPTION
+    keyboard-driven interface to manage system power states.
+    It uses dmenu to provide options for locking the screen, logging out,
+    rebooting, or shutting down.
+    
+    Destructive actions (logout, reboot, shutdown) require typed 
+    confirmation to prevent accidental execution 
+
+DEPENDENCIES
+    dmenu, systemd (loginctl/systemctl), i3-msg (for logout)
+EOF
+    exit 0
+fi
+
+ACTIONS="Lock\nLogout\nReboot\nShutdown"
+
+SELECTED=$(printf "%b" "$ACTIONS" | dmenu -i -p "System:")
+[ -z "$SELECTED" ] && exit 0
+
+case "$SELECTED" in
+    Logout|Reboot|Shutdown)
+        CONFIRM=$(printf "" | dmenu -p "Type 'yes' to confirm $SELECTED:")
+        [ "$CONFIRM" != "yes" ] && exit 0
+        ;;
+esac
+
+case "$SELECTED" in
+    Lock)     exec loginctl lock-session ;;
+    Logout)   exec i3-msg exit ;;
+    Reboot)   exec systemctl reboot ;;
+    Shutdown) exec systemctl poweroff ;;
+    *)        exit 1 ;;
+esac

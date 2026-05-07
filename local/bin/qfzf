@@ -85,12 +85,12 @@ if [[ ! -d "$search_root" ]]; then
     exit 1
 fi
 
-# Core execution pipeline
+# Pipeline
 "$fd_bin" "${fd_args[@]}" . "$search_root" 2>/dev/null | fzf \
     --multi \
     --ansi \
-    --prompt "quickfzf > " \
-    --header " C-f: Fullscreen | C-y: Yank | C-o: Open GUI | ENTER: Edit" \
+    --prompt "  Search > " \
+    --header "C-f: Fullscreen | C-y: Yank | C-o: Open GUI | ENTER: Edit" \
     --preview "${bat_bin:-cat} --style=numbers --color=always {} 2>/dev/null || ls -lh {}" \
     --preview-window "right:60%:border-left" \
     --bind "ctrl-f:toggle-preview" \

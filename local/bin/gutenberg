@@ -101,7 +101,7 @@ while true; do
     
     # Run fzf and capture the user's input and selection
     FZF_OUTPUT=$(cat "$CACHE_FILE" | \
-        fzf --prompt="Gutenberg> " \
+        fzf --prompt="  Search: " \
             --expect=ctrl-u,ctrl-r \
             --print-query \
             --header="Enter: Read | C-R: Random | C-U: Update Cache" \

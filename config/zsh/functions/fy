@@ -1,0 +1,23 @@
+#!/usr/bin/env zsh
+# fy: Fuzzy Yazi Integration
+# Locates a file or directory via fzf, opens it in Yazi, and syncs CWD on exit.
+
+local target
+target=$(fd --hidden --exclude .git 2>/dev/null | fzf \
+    --prompt="Yazi Target > " \
+    --height 40% --layout=reverse --border \
+    --preview 'if [ -d {} ]; then eza --tree --level=2 --color=always --icons {} 2>/dev/null; else file {}; fi')
+
+[[ -z "$target" ]] && return 130
+
+target="$(realpath "$target")"
+
+local tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
+
+yazi "$target" --cwd-file="$tmp"
+
+local cwd
+if cwd="$(cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+    cd -- "$cwd"
+fi
+rm -f -- "$tmp"

@@ -1,0 +1,16 @@
+# Mute volume
+"${HOME}/.local/bin/vpulse mute"
+   XF86AudioMute
+
+# Increase volume
+"${HOME}/.local/bin/vpulse raise"
+   XF86AudioRaiseVolume
+
+# Decrease volume
+"${HOME}/.local/bin/vpulse lower"
+   XF86AudioLowerVolume
+
+# Mute microphone
+"${HOME}/.local/bin/vpulse mute-mic"
+   XF86AudioMicMute
+

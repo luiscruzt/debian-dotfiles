@@ -19,6 +19,7 @@ vim.opt.smartindent = true
 vim.opt.completeopt = { "menuone", "noselect" }
 vim.opt.splitright = true
 vim.opt.splitbelow = true
+vim.opt_local.formatoptions:remove({"r", "o"})
 
 vim.filetype.add({ extension = { typ = "typst" } })
 
@@ -188,7 +189,7 @@ end
       keys = {
           -- 👇 in this section, choose your own keymappings!
           {
-              "<leader>-",
+              "<leader>y",
               mode = { "n", "v" },
               "<cmd>Yazi<cr>",
               desc = "Open yazi at the current file",
@@ -229,7 +230,7 @@ end
   }
 })
 
-map("n", "<leader>o", "<CMD>Oil --float<CR>")
+map("n", "<leader>o", ":setlocal spell! spelllang=en_us<CR>")
 map("n", "-", "<CMD>Oil<CR>")
 map("n", "<leader>ff", "<cmd>Telescope find_files<cr>")
 map("n", "<leader>fg", "<cmd>Telescope live_grep<cr>")
@@ -241,3 +242,46 @@ map("n", "<leader>ss", "<cmd>vs<CR>")
 map("n", "<leader>cc", "<cmd>close<CR>")
 map("n", "<leader>tp", "<cmd>TypstPreview<CR>")
 map("n", "<leader>ts", "<cmd>TypstPreviewStop<CR>")
+map("n", "<leader>cd", ":lcd %:p:h<CR>")
+-- Toggle continuous compilation and asynchronous PDF viewer
+vim.keymap.set('n', '<leader>c', function()
+    local tex_file = vim.fn.expand('%:p')
+    local pdf_file = vim.fn.expand('%:p:r') .. '.pdf'
+
+    -- 1. Destroy existing compiler daemon (Toggle OFF)
+    if vim.b.latex_job_id and vim.fn.jobwait({vim.b.latex_job_id}, 0)[1] == -1 then
+        vim.fn.jobstop(vim.b.latex_job_id)
+        vim.b.latex_job_id = nil
+        vim.notify("Compiler daemon terminated.", vim.log.levels.WARN)
+        return
+    end
+
+    -- 2. Instantiate compiler daemon (Toggle ON)
+    vim.b.latex_job_id = vim.fn.jobstart({
+        'latexmk',
+        '-pdf',
+        '-pvc',
+        '-synctex=1',
+        '-view=none',
+        '-interaction=nonstopmode',
+        '-halt-on-error',
+        tex_file
+    })
+
+    if vim.b.latex_job_id > 0 then
+        vim.notify("Continuous compilation started.", vim.log.levels.INFO)
+        -- 3. Launch PDF viewer asynchronously
+        if vim.fn.filereadable(pdf_file) == 1 then
+            vim.fn.jobstart({'sioyek', pdf_file}, {detach = true})
+        else
+            vim.notify("Awaiting first compilation pass to launch viewer.", vim.log.levels.INFO)
+        end
+    else
+        vim.notify("Process instantiation failed.", vim.log.levels.ERROR)
+    end
+end, { desc = "Toggle latexmk and launch Sioyek" })
+
+-- mdpv hotkey
+vim.keymap.set('n', '<leader>md', function()
+    vim.fn.jobstart({ 'mdpv', '-w', vim.fn.expand('%:p') }, { detach = true })
+end, { silent = true, desc = 'mdpv watch mode' })

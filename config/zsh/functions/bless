@@ -1,6 +1,5 @@
 #!/usr/bin/env zsh
 
-# help translation
 [[ "$1" == "--help" ]] && set -- "-h"
 
 # environment setup

@@ -1,0 +1,56 @@
+#!/usr/bin/env zsh
+
+if ! command -v sqlite3 >/dev/null; then
+    print -P "%F{red}Error: sqlite3 required.%f" >&2
+    return 1
+fi
+
+local profile_dir=$(find ~/.mozilla/firefox -maxdepth 1 -type d -name "*.default*" | head -n 1)
+[[ -z "$profile_dir" ]] && return 1
+
+local db_path="$profile_dir/places.sqlite"
+local tmp_db="/tmp/firefox_places_tmp.sqlite"
+
+cp "$db_path" "$tmp_db"
+
+local sql="SELECT title || ' │ ' || url FROM moz_places WHERE title IS NOT NULL AND hidden = 0 ORDER BY last_visit_date DESC LIMIT 1500;"
+
+local fzf_out=$(sqlite3 "$tmp_db" "$sql" 2>/dev/null | fzf \
+    --prompt="History > " \
+    --height 40% --layout=reverse --border -i \
+    --header="[Enter] Firefox  |  [^P] Private  |  [^S] Surf  |  [^C] Copy" \
+    --expect=ctrl-p,ctrl-s,ctrl-c \
+    --bind 'ctrl-d:half-page-down,ctrl-u:half-page-up')
+
+rm -f "$tmp_db"
+
+[[ -z "$fzf_out" ]] && return
+
+local key=$(echo "$fzf_out" | head -n1)
+local choice=$(echo "$fzf_out" | tail -n+2)
+
+[[ -z "$choice" ]] && return
+
+local url=$(echo "$choice" | awk -F' │ ' '{print $NF}')
+[[ -z "$url" ]] && return
+
+case "$key" in
+    ctrl-p)
+        librewolf --private-window "$url" >/dev/null 2>&1 &!
+        ;;
+    ctrl-s)
+        if command -v surf >/dev/null; then
+            surf "$url" >/dev/null 2>&1 &!
+        fi
+        ;;
+    ctrl-c)
+        if command -v xclip >/dev/null; then
+            printf "%s" "$url" | xclip -selection clipboard
+        elif command -v wl-copy >/dev/null; then
+            printf "%s" "$url" | wl-copy
+        fi
+        ;;
+    *)
+        firefox "$url" >/dev/null 2>&1 &!
+        ;;
+esac

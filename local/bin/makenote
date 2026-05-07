@@ -1,111 +1,73 @@
-#!/usr/bin/env bash
-# makenote - Fast, modular note instantiation environment
+#!/usr/bin/env sh
+# makenote: LaTeX and Typst note initialization script.
 
-set -euo pipefail
-
-# --- Documentation ---
-if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
     cat << 'EOF'
 NAME
-    makenote - modular instantiation for LaTeX, Typst, Markdown, and plaintext
+    makenote - LaTeX and Typst note initialization script
 
 SYNOPSIS
-    makenote [OPTIONS]
+    makenote
 
 DESCRIPTION
-    An interactive, fzf-driven script to rapidly scaffold notes. It handles 
-    directory management, template injection, and automatically orchestrates 
-    background compilation daemons (latexmk, typst watch) and PDF viewers.
-
-OPTIONS
-    -t <type>   Specify format: 'tex' (default), 'typ', 'md', or 'txt'.
-    -h          Show this manual and exit.
+    An interactive tool to scaffold notes. It infers the filetype 
+    from the input (e.g., 'calculus.tex' or 'forces.typ'), sets up 
+    the directory structure, generates templates, and runs the 
+    background compilers and PDF viewers.
 
 ENVIRONMENT
-    MAKENOTE_VAULT   Root directory for notes (Default: ~/mytex).
-    EDITOR           Text editor to launch (Default: nvim).
-    READER           PDF viewer to launch (Default: sioyek).
-
-DEPENDENCIES
-    Required: fzf, an editor ($EDITOR)
-    Optional: latexmk (for tex), typst (for typ), sioyek/zathura (for PDF viewing)
+    MAKENOTE_VAULT    Root directory (Default: ~/my-notes)
+    EDITOR            Text editor (Default: nvim)
 EOF
     exit 0
 fi
-# ---------------------
 
-# Option Parsing & Defaults
-FILETYPE="tex"
-while getopts "ht:" opt; do
-    case "$opt" in
-        t) FILETYPE="$OPTARG" ;;
-        \?) exit 1 ;;
-    esac
-done
-shift $((OPTIND - 1))
+# Setup base directory and taxonomy
+VAULT="${MAKENOTE_VAULT:-$HOME/my-notes}"
+TAXONOMY="general mathematics physics engineering computer-science philosophy"
 
-if [[ ! "$FILETYPE" =~ ^(tex|typ|md|txt)$ ]]; then
-    printf "Error: Unsupported filetype '%s'. Use tex, typ, md, or txt.\n" "$FILETYPE" >&2
-    exit 1
-fi
-
-#  Window Manager TTY Wrapper
-if [[ ! -t 0 ]] && [[ -z "${MAKENOTE_FLOAT:-}" ]]; then
-    exec env MAKENOTE_FLOAT=1 st -c "makenote_float" -e "$0" "$@"
-fi
-
-# Environment & Variables
-VAULT="${MAKENOTE_VAULT:-$HOME/mytex}"
-TEXT_EDITOR="${EDITOR:-nvim}"
-PDF_VIEWER="${READER:-sioyek}"
-mkdir -p "$VAULT"
-
-# Dependency Validation
-for req in "$TEXT_EDITOR" fzf; do
-    if ! command -v "$req" >/dev/null 2>&1; then
-        printf "Error: Required dependency '%s' missing.\n" "$req" >&2
-        [[ -n "${MAKENOTE_FLOAT:-}" ]] && read -r _ < /dev/tty
-        exit 1
-    fi
+for subj in $TAXONOMY; do
+    mkdir -p "$VAULT/$subj/figures"
 done
 
-# Interactive UI (fzf with Recency Sorting)
-SUBJECTS=$(ls -1t "$VAULT" 2>/dev/null || true)
-SUBJ=$(printf "general\n%s" "$SUBJECTS" | awk '!seen[$0]++' | fzf --prompt="Subject: " --print-query --height=100% --layout=reverse | tail -n 1)
-
-[[ -z "$SUBJ" ]] && exit 0
-
-printf "Topic (Optional):\n> "
-read -r TOPIC < /dev/tty
-
-# String Sanitization
-TIMESTAMP=$(date +'%Y%m%d_%H%M')
-DATE_HUMAN=$(date +'%Y-%m-%d')
-
-if [[ -n "$TOPIC" ]]; then
-    TOPIC_SANITIZED=$(printf "%s" "$TOPIC" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | tr -s '-' | sed 's/^-//;s/-$//')
-    TITLE_CLEAN=$(printf "%s" "$TOPIC" | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
-    FILENAME="${TIMESTAMP}_${TOPIC_SANITIZED}"
-else
-    TITLE_CLEAN="Note"
-    FILENAME="${TIMESTAMP}"
-fi
+# Subject selection with robust eza preview
+SUBJ=$(find "$VAULT" -mindepth 1 -maxdepth 1 -type d | sed "s|^$VAULT/||" | sort | \
+    fzf --prompt="Subject > " \
+        --preview "DIR='$VAULT/{}'; if [ -z \"\$(ls -A \"\$DIR\" 2>/dev/null)\" ]; then echo 'Empty Directory'; elif command -v eza >/dev/null 2>&1; then eza -1 --color=always --icons \"\$DIR\"; else ls -1 \"\$DIR\"; fi" \
+        --preview-window "right:45%:border-left" \
+        --print-query | tail -n 1)
+[ -z "$SUBJ" ] && exit 0
 
 DIR="$VAULT/$SUBJ"
-mkdir -p "$DIR"
-FILEPATH="$DIR/$FILENAME.$FILETYPE"
+mkdir -p "$DIR/figures"
 
-if [[ -f "$FILEPATH" ]]; then
-    printf "Error: File %s already exists.\n" "$FILEPATH" >&2
-    [[ -n "${MAKENOTE_FLOAT:-}" ]] && read -r _ < /dev/tty
+# Pure minimalist prompt
+printf "> "
+read -r INPUT
+[ -z "$INPUT" ] && exit 0
+
+# Parse extension and exact base name
+case "$INPUT" in
+    *.*) EXT="${INPUT##*.}" ; RAW_TITLE="${INPUT%.*}" ;;
+    *)   EXT="tex" ; RAW_TITLE="$INPUT" ;;
+esac
+
+if [ "$EXT" != "tex" ] && [ "$EXT" != "typ" ]; then
+    printf "Error: Only .tex and .typ are supported.\n" >&2
     exit 1
 fi
 
-# Modular Template Injection
-case "$FILETYPE" in
-    tex)
-        mkdir -p "$DIR/figures"
-        cat << EOF > "$FILEPATH"
+# Exact preservation for the document header
+TITLE="$RAW_TITLE"
+
+# Format strictly for the UNIX filename
+TIMESTAMP=$(date +'%Y%m%d_%H%M')
+CLEAN_NAME=$(printf "%s" "$RAW_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | tr -s '-' | sed 's/^-//;s/-$//')
+FILENAME="${TIMESTAMP}_${CLEAN_NAME}"
+
+# Generate template
+if [ "$EXT" = "tex" ]; then
+    cat << EOF > "$DIR/$FILENAME.tex"
 \documentclass[11pt, a4paper]{article}
 \usepackage{amsmath, amssymb, amsfonts, amsthm}
 \usepackage{graphicx}
@@ -113,7 +75,7 @@ case "$FILETYPE" in
 \usepackage[margin=1in]{geometry}
 \graphicspath{{./figures/}}
 
-\title{$TITLE_CLEAN}
+\title{$TITLE}
 \author{}
 \date{\today}
 
@@ -122,71 +84,48 @@ case "$FILETYPE" in
 
 \end{document}
 EOF
-        ;;
-    typ)
-        mkdir -p "$DIR/figures"
-        cat << EOF > "$FILEPATH"
-#set document(title: "$TITLE_CLEAN")
+else
+    cat << EOF > "$DIR/$FILENAME.typ"
+#set document(title: "$TITLE")
 #set page(paper: "a4", margin: 1in)
 #set text(font: "Linux Libertine", size: 11pt)
 
-= $TITLE_CLEAN
+= $TITLE
 
 EOF
-        ;;
-    md)
-        cat << EOF > "$FILEPATH"
----
-title: "$TITLE_CLEAN"
-date: $DATE_HUMAN
-subject: "$SUBJ"
----
+fi
 
-# $TITLE_CLEAN
+cd "$DIR" || exit 1
 
-EOF
-        ;;
-    txt)
-        cat << EOF > "$FILEPATH"
-$TITLE_CLEAN
-Subject: $SUBJ | Date: $DATE_HUMAN
-----------------------------------------
-
-EOF
-        ;;
-esac
-
-# Process Orchestration & Traps
 COMPILER_PID=""
+VIEWER_PID=""
 
+# Clean up specific background PIDs and exact build files on exit
 cleanup() {
-    if [[ -n "$COMPILER_PID" ]]; then
-        kill "$COMPILER_PID" >/dev/null 2>&1 || true
-    fi
-    if [[ "$FILETYPE" == "tex" ]]; then
-        rm -f "$DIR"/*.{aux,log,fls,fdb_latexmk,synctex.gz,out} 2>/dev/null || true
-    fi
+    [ -n "$COMPILER_PID" ] && kill "$COMPILER_PID" >/dev/null 2>&1 || true
+    [ -n "$VIEWER_PID" ] && kill "$VIEWER_PID" >/dev/null 2>&1 || true
+    
+    rm -f "$FILENAME".aux "$FILENAME".log "$FILENAME".fls "$FILENAME".fdb_latexmk \
+          "$FILENAME".synctex.gz "$FILENAME".out "$FILENAME".bbl "$FILENAME".bcf \
+          "$FILENAME".run.xml "$FILENAME".blg >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-# Compilation Engine
-cd "$DIR" || exit 1
-
-if [[ "$FILETYPE" == "tex" ]] && command -v latexmk >/dev/null 2>&1; then
-    latexmk -pdf -pvc -view=none -interaction=nonstopmode -halt-on-error "$FILENAME.tex" >/dev/null 2>&1 &
+# Start compiler and explicit PID capture
+if [ "$EXT" = "tex" ]; then
+    latexmk -pdf -synctex=1 -pvc -view=none -interaction=nonstopmode -halt-on-error "$FILENAME.tex" >/dev/null 2>&1 &
     COMPILER_PID=$!
-elif [[ "$FILETYPE" == "typ" ]] && command -v typst >/dev/null 2>&1; then
+else
     typst watch "$FILENAME.typ" "$FILENAME.pdf" >/dev/null 2>&1 &
     COMPILER_PID=$!
 fi
 
-# PDF Viewer Trigger
-if [[ -n "$COMPILER_PID" ]]; then
-    while [[ ! -f "$FILENAME.pdf" ]]; do sleep 0.1; done
-    if command -v "$PDF_VIEWER" >/dev/null 2>&1; then
-        "$PDF_VIEWER" "$FILENAME.pdf" >/dev/null 2>&1 &
-    fi
-fi
+# Start viewer subshell and explicit PID capture
+(
+    while [ ! -f "$FILENAME.pdf" ]; do sleep 0.2; done
+    sioyek "$FILENAME.pdf" >/dev/null 2>&1
+) &
+VIEWER_PID=$!
 
-# Editor Execution
-"$TEXT_EDITOR" "$FILEPATH"
+# Launch editor
+${EDITOR:-nvim} "$FILENAME.$EXT"
